@@ -11,109 +11,167 @@
   </div>
 </header>
 
-<section class="panel">
-  <h2>新闻</h2>
-  {% for item in data.news %}
-    <article class="info-item">
-      <div>
-        <strong>{{ item.title }}</strong>
-        <p>{{ stocks.get(item.stock_id).market if stocks.get(item.stock_id) else "" }} {{ stocks.get(item.stock_id).symbol if stocks.get(item.stock_id) else "" }} · {{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
-        <p>{{ item.summary }}</p>
-        {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
-      </div>
-      <form method="post" action="/info/news/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form>
-    </article>
-  {% else %}
-    <p class="muted">暂无新闻。</p>
-  {% endfor %}
-</section>
+{% macro stock_label(stock_id) -%}
+  {% set stock = stocks.get(stock_id) %}
+  {{ stock.market if stock else "" }} {{ stock.symbol if stock else stock_id }}
+{%- endmacro %}
 
 <section class="panel">
-  <h2>公告</h2>
-  {% for item in data.announcements %}
-    <article class="info-item">
-      <div>
-        <strong>{{ item.title }}</strong>
-        <p>{{ stocks.get(item.stock_id).market if stocks.get(item.stock_id) else "" }} {{ stocks.get(item.stock_id).symbol if stocks.get(item.stock_id) else "" }} · {{ item.source }} · {{ item.published_at.strftime("%Y-%m-%d") if item.published_at else item.created_at.strftime("%Y-%m-%d") }}</p>
-        <p>{{ item.summary }}</p>
-        {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开公告</a>{% endif %}
+  <form method="post" action="/info/news/delete">
+    <div class="section-head">
+      <h2>新闻</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".news-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
       </div>
-      <form method="post" action="/info/announcements/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form>
-    </article>
-  {% else %}
-    <p class="muted">暂无公告。</p>
-  {% endfor %}
-</section>
-
-<section class="panel">
-  <h2>行情</h2>
-  <table>
-    <thead><tr><th>股票</th><th>价格</th><th>涨跌幅</th><th>成交量</th><th>来源</th><th>时间</th><th></th></tr></thead>
-    <tbody>
-    {% for item in data.quotes %}
-      {% set stock = stocks.get(item.stock_id) %}
-      <tr>
-        <td>{{ stock.market if stock else "" }} {{ stock.symbol if stock else item.stock_id }}</td>
-        <td>{{ item.price }}</td>
-        <td>{{ item.change_percent }}</td>
-        <td>{{ item.volume }}</td>
-        <td>{{ item.source }}</td>
-        <td>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</td>
-        <td><form method="post" action="/info/quotes/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form></td>
-      </tr>
+    </div>
+    {% for item in data.news %}
+      <article class="info-item selectable-record">
+        <input class="news-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
+        <div class="record-content">
+          <strong>{{ item.title }}</strong>
+          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          <p>{{ item.summary }}</p>
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
+        </div>
+        <button class="ghost danger" type="submit" formaction="/info/news/{{ item.id }}/delete">删除</button>
+      </article>
+    {% else %}
+      <p class="muted">暂无新闻。</p>
     {% endfor %}
-    </tbody>
-  </table>
+  </form>
 </section>
 
 <section class="panel">
-  <h2>交易数据</h2>
-  {% for item in data.trading %}
-    {% set stock = stocks.get(item.stock_id) %}
-    <article class="info-item">
-      <div>
-        <strong>{{ stock.market if stock else "" }} {{ stock.symbol if stock else item.stock_id }} · {{ item.source }}</strong>
-        <p>价格 {{ item.price }}，涨跌幅 {{ item.change_percent }}，成交量 {{ item.volume }}，成交额 {{ item.turnover or "-" }}</p>
-        <pre>{{ item.raw_data }}</pre>
+  <form method="post" action="/info/announcements/delete">
+    <div class="section-head">
+      <h2>公告</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".announcement-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
       </div>
-      <form method="post" action="/info/trading/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form>
-    </article>
-  {% else %}
-    <p class="muted">暂无交易数据。</p>
-  {% endfor %}
+    </div>
+    {% for item in data.announcements %}
+      <article class="info-item selectable-record">
+        <input class="announcement-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
+        <div class="record-content">
+          <strong>{{ item.title }}</strong>
+          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.published_at.strftime("%Y-%m-%d") if item.published_at else item.created_at.strftime("%Y-%m-%d") }}</p>
+          <p>{{ item.summary }}</p>
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开公告</a>{% endif %}
+        </div>
+        <button class="ghost danger" type="submit" formaction="/info/announcements/{{ item.id }}/delete">删除</button>
+      </article>
+    {% else %}
+      <p class="muted">暂无公告。</p>
+    {% endfor %}
+  </form>
 </section>
 
 <section class="panel">
-  <h2>盘口</h2>
-  {% for item in data.order_book %}
-    {% set stock = stocks.get(item.stock_id) %}
-    <article class="info-item">
-      <div>
-        <strong>{{ stock.market if stock else "" }} {{ stock.symbol if stock else item.stock_id }} · {{ item.source }}</strong>
-        <p>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</p>
-        <pre>{{ item.levels }}</pre>
+  <form method="post" action="/info/quotes/delete">
+    <div class="section-head">
+      <h2>行情</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".quote-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
       </div>
-      <form method="post" action="/info/order_book/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form>
-    </article>
-  {% else %}
-    <p class="muted">暂无盘口数据。免费接口可能临时断开连接。</p>
-  {% endfor %}
+    </div>
+    <table>
+      <thead><tr><th></th><th>股票</th><th>价格</th><th>涨跌幅</th><th>成交量</th><th>来源</th><th>时间</th><th></th></tr></thead>
+      <tbody>
+      {% for item in data.quotes %}
+        <tr>
+          <td><input class="quote-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
+          <td>{{ stock_label(item.stock_id) }}</td>
+          <td>{{ item.price }}</td>
+          <td>{{ item.change_percent }}</td>
+          <td>{{ item.volume }}</td>
+          <td>{{ item.source }}</td>
+          <td>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td><button class="ghost danger" type="submit" formaction="/info/quotes/{{ item.id }}/delete">删除</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="empty-cell">暂无行情。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </form>
 </section>
 
 <section class="panel">
-  <h2>宏观</h2>
-  {% for item in data.macro %}
-    <article class="info-item">
-      <div>
-        <strong>{{ item.title }}</strong>
-        <p>{{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
-        <p>{{ item.summary }}</p>
-        {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
+  <form method="post" action="/info/trading/delete">
+    <div class="section-head">
+      <h2>交易数据</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".trading-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
       </div>
-      <form method="post" action="/info/macro/{{ item.id }}/delete"><button class="ghost" type="submit">删除</button></form>
-    </article>
-  {% else %}
-    <p class="muted">暂无宏观消息。</p>
-  {% endfor %}
+    </div>
+    {% for item in data.trading %}
+      <article class="info-item selectable-record">
+        <input class="trading-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
+        <div class="record-content">
+          <strong>{{ stock_label(item.stock_id) }} · {{ item.source }}</strong>
+          <p>价格 {{ item.price }}，涨跌幅 {{ item.change_percent }}，成交量 {{ item.volume }}，成交额 {{ item.turnover or "-" }}</p>
+          <pre>{{ item.raw_data }}</pre>
+        </div>
+        <button class="ghost danger" type="submit" formaction="/info/trading/{{ item.id }}/delete">删除</button>
+      </article>
+    {% else %}
+      <p class="muted">暂无交易数据。</p>
+    {% endfor %}
+  </form>
+</section>
+
+<section class="panel">
+  <form method="post" action="/info/order_book/delete">
+    <div class="section-head">
+      <h2>盘口</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".order-book-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
+      </div>
+    </div>
+    {% for item in data.order_book %}
+      <article class="info-item selectable-record">
+        <input class="order-book-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
+        <div class="record-content">
+          <strong>{{ stock_label(item.stock_id) }} · {{ item.source }}</strong>
+          <p>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          <pre>{{ item.levels }}</pre>
+        </div>
+        <button class="ghost danger" type="submit" formaction="/info/order_book/{{ item.id }}/delete">删除</button>
+      </article>
+    {% else %}
+      <p class="muted">暂无盘口数据。免费接口可能临时断开连接。</p>
+    {% endfor %}
+  </form>
+</section>
+
+<section class="panel">
+  <form method="post" action="/info/macro/delete">
+    <div class="section-head">
+      <h2>宏观</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".macro-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
+      </div>
+    </div>
+    {% for item in data.macro %}
+      <article class="info-item selectable-record">
+        <input class="macro-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
+        <div class="record-content">
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          <p>{{ item.summary }}</p>
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
+        </div>
+        <button class="ghost danger" type="submit" formaction="/info/macro/{{ item.id }}/delete">删除</button>
+      </article>
+    {% else %}
+      <p class="muted">暂无宏观消息。</p>
+    {% endfor %}
+  </form>
 </section>
 {% endblock %}

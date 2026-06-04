@@ -10,17 +10,24 @@
     <button type="submit">抓取并生成简报</button>
   </form>
 </header>
-<section class="panel brief-list">
+<form method="post" action="/briefs/delete" class="panel brief-list">
+  <div class="bulk-toolbar">
+    <label class="inline-check"><input type="checkbox" data-select-all=".brief-check"> 全选</label>
+    <button class="ghost danger" type="submit">删除所选简报</button>
+  </div>
   {% for brief in briefs %}
-    <article class="brief">
-      <div class="record-head">
-        <h2>{{ brief.title }}</h2>
-        <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+    <article class="brief selectable-record">
+      <input class="brief-check record-check" type="checkbox" name="item_ids" value="{{ brief.id }}">
+      <div class="record-content">
+        <div class="record-head">
+          <h2>{{ brief.title }}</h2>
+          <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+        </div>
+        <div class="markdown-body">{{ brief.content | markdown }}</div>
       </div>
-      <div class="markdown-body">{{ brief.content | markdown }}</div>
     </article>
   {% else %}
     <p class="muted">暂无简报。</p>
   {% endfor %}
-</section>
+</form>
 {% endblock %}

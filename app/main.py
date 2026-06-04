@@ -184,6 +184,16 @@ async def generate_brief(push: bool = Form(False), session: Session = Depends(ge
     return redirect("/briefs")
 
 
+@app.post("/briefs/delete")
+def delete_briefs(item_ids: list[int] = Form(default=[]), session: Session = Depends(get_session)):
+    for item_id in item_ids:
+        item = session.get(Brief, item_id)
+        if item is not None:
+            session.delete(item)
+    session.commit()
+    return redirect("/briefs")
+
+
 @app.get("/info", response_class=HTMLResponse)
 def info_library(request: Request, session: Session = Depends(get_session)):
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
@@ -208,6 +218,18 @@ def delete_info(kind: str, item_id: int, session: Session = Depends(get_session)
         if item is not None:
             session.delete(item)
             session.commit()
+    return redirect("/info")
+
+
+@app.post("/info/{kind}/delete")
+def delete_info_batch(kind: str, item_ids: list[int] = Form(default=[]), session: Session = Depends(get_session)):
+    model = INFO_MODELS.get(kind)
+    if model is not None:
+        for item_id in item_ids:
+            item = session.get(model, item_id)
+            if item is not None:
+                session.delete(item)
+        session.commit()
     return redirect("/info")
 
 
