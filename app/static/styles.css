@@ -157,6 +157,12 @@ time {
   min-width: 860px;
 }
 
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

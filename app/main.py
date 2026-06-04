@@ -367,6 +367,15 @@ def toggle_alert(rule_id: int, session: Session = Depends(get_session)):
     return redirect("/alerts")
 
 
+@app.post("/alerts/{rule_id}/delete")
+def delete_alert(rule_id: int, session: Session = Depends(get_session)):
+    rule = session.get(AlertRule, rule_id)
+    if rule:
+        session.delete(rule)
+        session.commit()
+    return redirect("/alerts")
+
+
 @app.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, session: Session = Depends(get_session)):
     values = all_settings(session)

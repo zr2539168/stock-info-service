@@ -99,7 +99,12 @@
         <td>{{ rule_label(rule.rule_type) }}</td>
         <td>{{ rule.threshold or rule.keyword or "-" }}</td>
         <td>{% if rule.enabled %}&#x542F;&#x7528;{% else %}&#x505C;&#x7528;{% endif %}</td>
-        <td><form method="post" action="/alerts/{{ rule.id }}/toggle"><button type="submit">&#x5207;&#x6362;</button></form></td>
+        <td>
+          <div class="table-actions">
+            <form method="post" action="/alerts/{{ rule.id }}/toggle"><button type="submit">&#x5207;&#x6362;</button></form>
+            <form method="post" action="/alerts/{{ rule.id }}/delete"><button class="ghost danger" type="submit">&#x5220;&#x9664;</button></form>
+          </div>
+        </td>
       </tr>
     {% else %}
       <tr><td colspan="6" class="empty-cell">&#x6682;&#x65E0;&#x89C4;&#x5219;&#x3002;</td></tr>
