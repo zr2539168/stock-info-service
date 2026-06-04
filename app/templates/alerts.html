@@ -110,7 +110,10 @@
 <section class="panel">
   <h2>&#x89E6;&#x53D1;&#x8BB0;&#x5F55;</h2>
   {% for event in events %}
-    <article class="item"><strong>{{ event.created_at | beijing_time }}</strong><p>{{ event.message }}</p></article>
+    <article class="item">
+      <strong>{{ stock_label(event.stock_id) }} &middot; {{ event.created_at | beijing_time }}</strong>
+      <p>{{ event.message }}</p>
+    </article>
   {% else %}
     <p class="muted">&#x6682;&#x65E0;&#x89E6;&#x53D1;&#x8BB0;&#x5F55;&#x3002;</p>
   {% endfor %}
