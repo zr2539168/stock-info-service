@@ -278,9 +278,11 @@ async def push_pending_alert_events(session: Session, client: PushDeerClient | N
     if not events:
         return 0
     pusher = client or PushDeerClient(get_runtime_config(session))
+    stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
     pushed = 0
     for event in events:
-        result = await pusher.push("Stock Info Alert", event.message)
+        stock_label = _stock_label(stocks, event.stock_id)
+        result = await pusher.push(f"Stock Alert: {stock_label}", f"{stock_label}\n\n{event.message}")
         if not result.ok:
             continue
         event.pushed = True

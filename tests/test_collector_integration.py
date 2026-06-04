@@ -192,4 +192,4 @@ def test_push_pending_alert_events_marks_events_pushed() -> None:
         assert pushed == 1
         assert updated is not None
         assert updated.pushed
-        assert client.messages == [("Stock Info Alert", "alert")]
+        assert client.messages == [("Stock Alert: US GOOGL Alphabet Inc.", "US GOOGL Alphabet Inc.\n\nalert")]
