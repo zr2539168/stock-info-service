@@ -188,9 +188,28 @@ textarea {
 
 .item,
 .brief,
-.message {
+.message,
+.info-item {
   border-bottom: 1px solid var(--line);
   padding: 10px 0;
+}
+
+.info-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+
+pre {
+  max-height: 220px;
+  overflow: auto;
+  background: #f5f7fa;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .brief p,

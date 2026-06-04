@@ -34,6 +34,26 @@ class MarketQuote(SQLModel, table=True):
     observed_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class TradingData(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stock_id: int = Field(index=True, foreign_key="stock.id")
+    price: Optional[float] = None
+    change_percent: Optional[float] = None
+    volume: Optional[float] = None
+    turnover: Optional[float] = None
+    source: str = Field(default="", max_length=64)
+    raw_data: str = Field(default="")
+    observed_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+class OrderBookSnapshot(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stock_id: int = Field(index=True, foreign_key="stock.id")
+    source: str = Field(default="", max_length=64)
+    levels: str = Field(default="")
+    observed_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class NewsItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: Optional[int] = Field(default=None, index=True, foreign_key="stock.id")
@@ -128,4 +148,3 @@ class AppSetting(SQLModel, table=True):
     value: str = Field(default="")
     secret: bool = Field(default=False)
     updated_at: datetime = Field(default_factory=utc_now)
-

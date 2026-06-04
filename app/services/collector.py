@@ -7,14 +7,17 @@ from sqlmodel import Session, col, select
 from app.models import (
     AlertEvent,
     AlertRule,
+    Announcement,
     Brief,
     FetchJobRun,
     MacroEvent,
     MarketQuote,
     NewsItem,
+    OrderBookSnapshot,
     Stock,
+    TradingData,
 )
-from app.schemas import NormalizedArticle, NormalizedQuote
+from app.schemas import NormalizedArticle, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
 from app.services.ai import DeepSeekClient, build_brief_prompt
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
@@ -47,11 +50,41 @@ def collect_quotes(session: Session, provider: MarketDataProvider | None = None)
     return count
 
 
+def collect_market_details(session: Session, provider: MarketDataProvider | None = None) -> int:
+    provider = provider or MarketDataProvider()
+    count = 0
+    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    for stock in stocks:
+        trading = provider.fetch_trading_data(stock.market, stock.symbol)
+        if trading:
+            session.add(_trading_to_model(stock.id or 0, trading))
+            count += 1
+        order_book = provider.fetch_order_book(stock.market, stock.symbol)
+        if order_book:
+            session.add(_order_book_to_model(stock.id or 0, order_book))
+            count += 1
+    session.commit()
+    return count
+
+
 async def collect_news(session: Session, provider: NewsProvider | None = None) -> int:
     provider = provider or NewsProvider()
-    articles = await provider.fetch_news()
-    count = _save_articles(session, articles, NewsItem)
+    count = 0
+    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    for stock in stocks:
+        articles = await provider.fetch_stock_news(stock)
+        count += _save_articles(session, articles, NewsItem, stock_id=stock.id)
     evaluate_alerts(session)
+    return count
+
+
+async def collect_announcements(session: Session, provider: NewsProvider | None = None) -> int:
+    provider = provider or NewsProvider()
+    count = 0
+    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    for stock in stocks:
+        articles = await provider.fetch_announcements(stock)
+        count += _save_articles(session, articles, Announcement, stock_id=stock.id)
     return count
 
 
@@ -59,6 +92,16 @@ async def collect_macro(session: Session, provider: NewsProvider | None = None) 
     provider = provider or NewsProvider()
     articles = await provider.fetch_macro()
     return _save_articles(session, articles, MacroEvent)
+
+
+async def collect_all_information(session: Session) -> dict[str, int]:
+    return {
+        "quotes": collect_quotes(session),
+        "trading_and_order_book": collect_market_details(session),
+        "news": await collect_news(session),
+        "announcements": await collect_announcements(session),
+        "macro": await collect_macro(session),
+    }
 
 
 async def generate_daily_brief(session: Session, stock_id: int | None = None, push: bool = False) -> Brief:
@@ -89,11 +132,17 @@ async def answer_question(session: Session, question: str) -> str:
 def build_context(session: Session, stock_id: int | None = None, query: str = "") -> str:
     pieces: list[str] = []
     quote_stmt = select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(20)
+    trading_stmt = select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(20)
+    order_stmt = select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(10)
     news_stmt = select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(20)
+    announcement_stmt = select(Announcement).order_by(col(Announcement.created_at).desc()).limit(20)
     macro_stmt = select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(10)
     if stock_id is not None:
         quote_stmt = quote_stmt.where(MarketQuote.stock_id == stock_id)
+        trading_stmt = trading_stmt.where(TradingData.stock_id == stock_id)
+        order_stmt = order_stmt.where(OrderBookSnapshot.stock_id == stock_id)
         news_stmt = news_stmt.where(NewsItem.stock_id == stock_id)
+        announcement_stmt = announcement_stmt.where(Announcement.stock_id == stock_id)
     if query:
         like = f"%{query[:40]}%"
         news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like))).limit(20)
@@ -103,8 +152,20 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
             f"[行情] stock_id={quote.stock_id} price={quote.price} pct={quote.change_percent} "
             f"volume={quote.volume} source={quote.source} time={quote.observed_at}"
         )
+    for trading in session.exec(trading_stmt).all():
+        pieces.append(
+            f"[交易数据] stock_id={trading.stock_id} price={trading.price} pct={trading.change_percent} "
+            f"volume={trading.volume} turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
+        )
+    for order in session.exec(order_stmt).all():
+        pieces.append(
+            f"[盘口] stock_id={order.stock_id} source={order.source} time={order.observed_at} "
+            f"levels={compact_text(order.levels, 420)}"
+        )
     for item in session.exec(news_stmt).all():
-        pieces.append(f"[新闻] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
+        pieces.append(f"[新闻] stock_id={item.stock_id} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
+    for item in session.exec(announcement_stmt).all():
+        pieces.append(f"[公告] stock_id={item.stock_id} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     for item in session.exec(macro_stmt).all():
         pieces.append(f"[宏观] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     return "\n".join(pieces) or "暂无本地采集资料。"
@@ -161,23 +222,46 @@ def _quote_to_model(stock_id: int, quote: NormalizedQuote) -> MarketQuote:
     )
 
 
-def _save_articles(session: Session, articles: list[NormalizedArticle], model_type: type[NewsItem] | type[MacroEvent]) -> int:
+def _trading_to_model(stock_id: int, trading: NormalizedTradingData) -> TradingData:
+    return TradingData(
+        stock_id=stock_id,
+        price=trading.price,
+        change_percent=trading.change_percent,
+        volume=trading.volume,
+        turnover=trading.turnover,
+        source=trading.source,
+        raw_data=trading.raw_data,
+    )
+
+
+def _order_book_to_model(stock_id: int, order_book: NormalizedOrderBook) -> OrderBookSnapshot:
+    return OrderBookSnapshot(stock_id=stock_id, source=order_book.source, levels=order_book.levels)
+
+
+def _save_articles(
+    session: Session,
+    articles: list[NormalizedArticle],
+    model_type: type[NewsItem] | type[Announcement] | type[MacroEvent],
+    stock_id: int | None = None,
+) -> int:
     count = 0
     for article in articles:
-        digest = content_hash(article.title, article.url)
+        digest = content_hash(str(stock_id or ""), article.title, article.url)
         exists = session.exec(select(model_type).where(model_type.content_hash == digest)).first()
         if exists:
             continue
-        item = model_type(
-            source=article.source,
-            title=article.title,
-            url=article.url,
-            summary=compact_text(article.summary, 1500),
-            published_at=article.published_at,
-            content_hash=digest,
-        )
+        fields = {
+            "source": article.source,
+            "title": article.title,
+            "url": article.url,
+            "summary": compact_text(article.summary, 1500),
+            "published_at": article.published_at,
+            "content_hash": digest,
+        }
+        if model_type is not MacroEvent:
+            fields["stock_id"] = stock_id
+        item = model_type(**fields)
         session.add(item)
         count += 1
     session.commit()
     return count
-

@@ -3,26 +3,37 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from app.services.data_sources import MarketDataProvider
+from app.services.data_sources import (
+    COL_CHANGE_PERCENT,
+    COL_CODE,
+    COL_HIGH_ETF,
+    COL_LOW_ETF,
+    COL_NAME,
+    COL_OPEN_ETF,
+    COL_PREV_CLOSE,
+    COL_PRICE,
+    COL_VOLUME,
+    MarketDataProvider,
+)
 
 
 def test_cn_quote_falls_back_to_etf_spot(monkeypatch) -> None:
     fake_akshare = SimpleNamespace(
         stock_zh_a_spot_em=lambda: pd.DataFrame(
-            [{"代码": "600519", "名称": "贵州茅台", "最新价": 1500.0}]
+            [{COL_CODE: "600519", COL_NAME: "贵州茅台", COL_PRICE: 1500.0}]
         ),
         fund_etf_spot_em=lambda: pd.DataFrame(
             [
                 {
-                    "代码": "159501",
-                    "名称": "纳指ETF嘉实",
-                    "最新价": 2.107,
-                    "开盘价": 2.12,
-                    "最高价": 2.131,
-                    "最低价": 2.104,
-                    "昨收": 2.153,
-                    "涨跌幅": -2.14,
-                    "成交量": 1149889,
+                    COL_CODE: "159501",
+                    COL_NAME: "纳指ETF嘉实",
+                    COL_PRICE: 2.107,
+                    COL_OPEN_ETF: 2.12,
+                    COL_HIGH_ETF: 2.131,
+                    COL_LOW_ETF: 2.104,
+                    COL_PREV_CLOSE: 2.153,
+                    COL_CHANGE_PERCENT: -2.14,
+                    COL_VOLUME: 1149889,
                 }
             ]
         ),
@@ -44,15 +55,15 @@ def test_cn_quote_tries_etf_when_stock_spot_fails(monkeypatch) -> None:
         fund_etf_spot_em=lambda: pd.DataFrame(
             [
                 {
-                    "代码": "159501",
-                    "名称": "纳指ETF嘉实",
-                    "最新价": 2.107,
-                    "开盘价": 2.12,
-                    "最高价": 2.131,
-                    "最低价": 2.104,
-                    "昨收": 2.153,
-                    "涨跌幅": -2.14,
-                    "成交量": 1149889,
+                    COL_CODE: "159501",
+                    COL_NAME: "纳指ETF嘉实",
+                    COL_PRICE: 2.107,
+                    COL_OPEN_ETF: 2.12,
+                    COL_HIGH_ETF: 2.131,
+                    COL_LOW_ETF: 2.104,
+                    COL_PREV_CLOSE: 2.153,
+                    COL_CHANGE_PERCENT: -2.14,
+                    COL_VOLUME: 1149889,
                 }
             ]
         ),

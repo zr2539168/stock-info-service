@@ -19,6 +19,26 @@ class NormalizedQuote:
 
 
 @dataclass
+class NormalizedTradingData:
+    symbol: str
+    market: str
+    price: float | None = None
+    change_percent: float | None = None
+    volume: float | None = None
+    turnover: float | None = None
+    source: str = ""
+    raw_data: str = ""
+
+
+@dataclass
+class NormalizedOrderBook:
+    symbol: str
+    market: str
+    source: str
+    levels: str
+
+
+@dataclass
 class ResolvedStock:
     market: str
     symbol: str

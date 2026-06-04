@@ -3,10 +3,13 @@
 <header class="page-head">
   <h1>采集任务</h1>
   <div class="button-row">
+    <form method="post" action="/jobs/run/all"><button type="submit">抓全部信息</button></form>
     <form method="post" action="/jobs/run/quotes"><button type="submit">抓行情</button></form>
+    <form method="post" action="/jobs/run/details"><button type="submit">抓交易/盘口</button></form>
     <form method="post" action="/jobs/run/news"><button type="submit">抓新闻</button></form>
+    <form method="post" action="/jobs/run/announcements"><button type="submit">抓公告</button></form>
     <form method="post" action="/jobs/run/macro"><button type="submit">抓宏观</button></form>
-    <form method="post" action="/jobs/run/brief"><button type="submit">生成简报</button></form>
+    <form method="post" action="/jobs/run/brief"><button type="submit">抓取并生成简报</button></form>
   </div>
 </header>
 <section class="panel">
@@ -26,4 +29,3 @@
   </table>
 </section>
 {% endblock %}
-

@@ -11,10 +11,33 @@ from sqlmodel import Session, col, select
 
 from app.config import mask_secret, settings
 from app.database import get_session, init_db
-from app.models import AlertEvent, AlertRule, Brief, ChatMessage, ChatSession, FetchJobRun, MarketQuote, Stock
+from app.models import (
+    AlertEvent,
+    AlertRule,
+    Announcement,
+    Brief,
+    ChatMessage,
+    ChatSession,
+    FetchJobRun,
+    MacroEvent,
+    MarketQuote,
+    NewsItem,
+    OrderBookSnapshot,
+    Stock,
+    TradingData,
+)
 from app.scheduler import build_scheduler
 from app.services.ai import DeepSeekClient
-from app.services.collector import answer_question, collect_macro, collect_news, collect_quotes, generate_daily_brief
+from app.services.collector import (
+    answer_question,
+    collect_all_information,
+    collect_announcements,
+    collect_macro,
+    collect_market_details,
+    collect_news,
+    collect_quotes,
+    generate_daily_brief,
+)
 from app.services.data_sources import StockIdentityProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import all_settings, get_runtime_config, set_setting
@@ -43,6 +66,16 @@ def redirect(path: str) -> RedirectResponse:
 
 def watchlist_redirect(message: str, level: str = "info") -> RedirectResponse:
     return redirect(f"/watchlist?{urlencode({'level': level, 'message': message})}")
+
+
+INFO_MODELS = {
+    "quotes": MarketQuote,
+    "trading": TradingData,
+    "order_book": OrderBookSnapshot,
+    "news": NewsItem,
+    "announcements": Announcement,
+    "macro": MacroEvent,
+}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -144,8 +177,36 @@ def briefs(request: Request, session: Session = Depends(get_session)):
 
 @app.post("/briefs/generate")
 async def generate_brief(push: bool = Form(False), session: Session = Depends(get_session)):
+    await collect_all_information(session)
     await generate_daily_brief(session, push=push)
     return redirect("/briefs")
+
+
+@app.get("/info", response_class=HTMLResponse)
+def info_library(request: Request, session: Session = Depends(get_session)):
+    stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
+    data = {
+        "quotes": session.exec(select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(100)).all(),
+        "trading": session.exec(select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(100)).all(),
+        "order_book": session.exec(
+            select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(100)
+        ).all(),
+        "news": session.exec(select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(100)).all(),
+        "announcements": session.exec(select(Announcement).order_by(col(Announcement.created_at).desc()).limit(100)).all(),
+        "macro": session.exec(select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(100)).all(),
+    }
+    return templates.TemplateResponse(request, "info.html", {"data": data, "stocks": stocks})
+
+
+@app.post("/info/{kind}/{item_id}/delete")
+def delete_info(kind: str, item_id: int, session: Session = Depends(get_session)):
+    model = INFO_MODELS.get(kind)
+    if model is not None:
+        item = session.get(model, item_id)
+        if item is not None:
+            session.delete(item)
+            session.commit()
+    return redirect("/info")
 
 
 @app.get("/chat", response_class=HTMLResponse)
@@ -285,10 +346,17 @@ def jobs(request: Request, session: Session = Depends(get_session)):
 async def run_job(job_name: str, session: Session = Depends(get_session)):
     if job_name == "quotes":
         collect_quotes(session)
+    elif job_name == "details":
+        collect_market_details(session)
     elif job_name == "news":
         await collect_news(session)
+    elif job_name == "announcements":
+        await collect_announcements(session)
     elif job_name == "macro":
         await collect_macro(session)
+    elif job_name == "all":
+        await collect_all_information(session)
     elif job_name == "brief":
+        await collect_all_information(session)
         await generate_daily_brief(session, push=False)
     return redirect("/jobs")
