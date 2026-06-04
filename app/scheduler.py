@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from app.config import settings
 from app.database import engine
+from app.services.market_calendar import is_market_trading_day
 from app.services.collector import (
     collect_all_information,
     collect_announcements,
@@ -40,6 +41,19 @@ def build_scheduler() -> BackgroundScheduler:
     )
     scheduler.add_job(_run_macro_job, CronTrigger.from_crontab(settings.fetch_macro_cron), id="macro", replace_existing=True)
     scheduler.add_job(_run_brief_job, CronTrigger.from_crontab(settings.daily_brief_cron), id="daily_brief", replace_existing=True)
+    if settings.market_open_briefs_enabled:
+        scheduler.add_job(
+            _run_cn_open_brief_job,
+            CronTrigger.from_crontab(settings.cn_open_brief_cron, timezone="Asia/Shanghai"),
+            id="cn_open_brief",
+            replace_existing=True,
+        )
+        scheduler.add_job(
+            _run_us_open_brief_job,
+            CronTrigger.from_crontab(settings.us_open_brief_cron, timezone="America/New_York"),
+            id="us_open_brief",
+            replace_existing=True,
+        )
     return scheduler
 
 
@@ -103,6 +117,29 @@ def _run_brief_job() -> None:
             asyncio.run(collect_all_information(session))
             asyncio.run(push_pending_alert_events(session))
             asyncio.run(generate_daily_brief(session, push=True))
+            finish_job(session, run, "success")
+        except Exception as exc:
+            finish_job(session, run, "failed", str(exc))
+
+
+def _run_cn_open_brief_job() -> None:
+    _run_market_open_brief_job("CN", "A股开盘半小时后")
+
+
+def _run_us_open_brief_job() -> None:
+    _run_market_open_brief_job("US", "美股开盘半小时后")
+
+
+def _run_market_open_brief_job(market: str, label: str) -> None:
+    with Session(engine) as session:
+        run = start_job(session, f"{market.lower()}_open_brief")
+        try:
+            if not is_market_trading_day(market):
+                finish_job(session, run, "skipped", f"{market} market is closed")
+                return
+            asyncio.run(collect_all_information(session))
+            asyncio.run(push_pending_alert_events(session))
+            asyncio.run(generate_daily_brief(session, push=True, scope_label=label))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))

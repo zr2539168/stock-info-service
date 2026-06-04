@@ -124,13 +124,18 @@ async def collect_all_information(session: Session) -> dict[str, int]:
     }
 
 
-async def generate_daily_brief(session: Session, stock_id: int | None = None, push: bool = False) -> Brief:
+async def generate_daily_brief(
+    session: Session,
+    stock_id: int | None = None,
+    push: bool = False,
+    scope_label: str | None = None,
+) -> Brief:
     cfg = get_runtime_config(session)
     context = build_context(session, stock_id)
     ai = DeepSeekClient(cfg)
-    scope = "自选股" if stock_id is None else "个股"
+    scope = scope_label or ("自选股" if stock_id is None else "个股")
     result = await ai.complete(build_brief_prompt(scope), context)
-    title = "每日市场简报" if stock_id is None else "个股简报"
+    title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
     brief = Brief(stock_id=stock_id, title=title, content=result.content, sources=context)
     session.add(brief)
     session.commit()

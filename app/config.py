@@ -31,6 +31,9 @@ class EnvSettings:
     fetch_news_cron: str = env("FETCH_NEWS_CRON", "*/30 * * * *")
     fetch_macro_cron: str = env("FETCH_MACRO_CRON", "15 7 * * *")
     daily_brief_cron: str = env("DAILY_BRIEF_CRON", "5 16 * * 1-5")
+    market_open_briefs_enabled: bool = env("MARKET_OPEN_BRIEFS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    cn_open_brief_cron: str = env("CN_OPEN_BRIEF_CRON", "0 10 * * 1-5")
+    us_open_brief_cron: str = env("US_OPEN_BRIEF_CRON", "0 10 * * 1-5")
 
 
 settings = EnvSettings()
@@ -42,4 +45,3 @@ def mask_secret(value: str | None) -> str:
     if len(value) <= 8:
         return "*" * len(value)
     return f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
-
