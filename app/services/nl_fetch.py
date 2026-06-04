@@ -14,6 +14,29 @@ from app.services.stock_parser import normalize_market, normalize_symbol
 SYMBOL_RE = re.compile(r"(?<![A-Z0-9])[A-Z]{1,6}(?![A-Z0-9])|(?<!\d)\d{4,6}(?!\d)")
 
 
+def _u(*codepoints: int) -> str:
+    return "".join(chr(codepoint) for codepoint in codepoints)
+
+
+FETCH_WORDS = [
+    _u(0x6293),
+    _u(0x83B7, 0x53D6),
+    _u(0x62C9, 0x53D6),
+    _u(0x66F4, 0x65B0),
+    _u(0x4E0B, 0x8F7D),
+    _u(0x91C7, 0x96C6),
+]
+MARKET_DATA_WORDS = [
+    _u(0x884C, 0x60C5),
+    _u(0x5386, 0x53F2),
+    "K" + _u(0x7EBF),
+    "k" + _u(0x7EBF),
+    _u(0x4EA4, 0x6613, 0x6570, 0x636E),
+    _u(0x4EF7, 0x683C),
+    _u(0x8D70, 0x52BF),
+]
+
+
 @dataclass
 class FetchPlan:
     symbol: str
@@ -52,11 +75,11 @@ def execute_fetch_plan(
     identity_provider: StockIdentityProvider | None = None,
 ) -> FetchExecution:
     if plan.data_kind != "history":
-        return FetchExecution(False, "暂不支持该数据类型。")
+        return FetchExecution(False, _u(0x6682, 0x4E0D, 0x652F, 0x6301, 0x8BE5, 0x6570, 0x636E, 0x7C7B, 0x578B, 0x3002))
 
     stock = _get_or_create_stock(session, plan, identity_provider or StockIdentityProvider())
     if stock is None or stock.id is None:
-        return FetchExecution(False, f"未能识别 {plan.market} {plan.symbol}。")
+        return FetchExecution(False, f"{_u(0x672A, 0x80FD, 0x8BC6, 0x522B)} {plan.market} {plan.symbol}{_u(0x3002)}")
 
     prices = (provider or MarketDataProvider()).fetch_historical_prices(stock.market, stock.symbol, plan.period)
     rows_saved = 0
@@ -82,28 +105,37 @@ def execute_fetch_plan(
     session.commit()
     return FetchExecution(
         bool(prices),
-        f"已抓取 {stock.market} {stock.symbol} {stock.name} 的历史行情，新增 {rows_saved} 条。",
+        f"{_u(0x5DF2, 0x6293, 0x53D6)} {stock.market} {stock.symbol} {stock.name} "
+        f"{_u(0x7684, 0x5386, 0x53F2, 0x884C, 0x60C5, 0xFF0C, 0x65B0, 0x589E)} {rows_saved} "
+        f"{_u(0x6761, 0x3002)}",
         rows_saved,
         stock,
     )
 
 
 def _looks_like_fetch_request(text: str) -> bool:
-    return any(word in text for word in ["抓", "获取", "拉取", "更新", "下载", "采集"])
+    return any(word in text for word in FETCH_WORDS)
 
 
 def _looks_like_market_data_request(text: str) -> bool:
-    return any(word in text for word in ["行情", "历史", "K线", "k线", "交易数据", "价格", "走势"])
+    return any(word in text for word in MARKET_DATA_WORDS)
 
 
 def _period_from_text(text: str) -> str:
-    if "一年" in text or "1年" in text:
+    year = _u(0x4E00, 0x5E74)
+    half_year = _u(0x534A, 0x5E74)
+    month = _u(0x4E2A, 0x6708)
+    three_months = _u(0x4E09, 0x4E2A, 0x6708)
+    quarter = _u(0x4E00, 0x5B63, 0x5EA6)
+    week = _u(0x4E00, 0x5468)
+    day = _u(0x5929)
+    if year in text or f"1{_u(0x5E74)}" in text:
         return "1y"
-    if "半年" in text or "6个月" in text:
+    if half_year in text or f"6{month}" in text:
         return "6mo"
-    if "三个月" in text or "3个月" in text or "一季度" in text:
+    if three_months in text or f"3{month}" in text or quarter in text:
         return "3mo"
-    if "一周" in text or "7天" in text:
+    if week in text or f"7{day}" in text:
         return "5d"
     return "1mo"
 
@@ -127,7 +159,7 @@ def _first_symbol(text: str) -> str | None:
 
 def _infer_market(symbol: str) -> str:
     if symbol.isdigit():
-        return "HK" if len(symbol) in {4, 5} and not len(symbol) == 6 else "CN"
+        return "HK" if len(symbol) in {4, 5} and len(symbol) != 6 else "CN"
     return "US"
 
 

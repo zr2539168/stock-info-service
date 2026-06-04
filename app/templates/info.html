@@ -2,27 +2,37 @@
 {% block content %}
 <header class="page-head">
   <div>
-    <h1>信息库</h1>
-    <p>已保存的自选股相关行情、交易数据、盘口、新闻、公告和宏观消息。</p>
+    <h1>&#x4FE1;&#x606F;&#x5E93;</h1>
+    <p>&#x5DF2;&#x4FDD;&#x5B58;&#x7684;&#x81EA;&#x9009;&#x80A1;&#x76F8;&#x5173;&#x884C;&#x60C5;&#x3001;&#x5386;&#x53F2;&#x884C;&#x60C5;&#x3001;&#x4EA4;&#x6613;&#x6570;&#x636E;&#x3001;&#x76D8;&#x53E3;&#x3001;&#x65B0;&#x95FB;&#x3001;&#x516C;&#x544A;&#x548C;&#x5B8F;&#x89C2;&#x6D88;&#x606F;&#x3002;</p>
   </div>
   <div class="button-row">
-    <form method="post" action="/jobs/run/all"><button type="submit">抓全部信息</button></form>
-    <form method="post" action="/jobs/run/brief"><button type="submit">生成简报</button></form>
+    <form method="post" action="/jobs/run/all"><button type="submit">&#x6293;&#x53D6;&#x5168;&#x90E8;&#x4FE1;&#x606F;</button></form>
+    <form method="post" action="/jobs/run/brief"><button type="submit">&#x751F;&#x6210;&#x7B80;&#x62A5;</button></form>
   </div>
 </header>
 
 {% macro stock_label(stock_id) -%}
   {% set stock = stocks.get(stock_id) %}
-  {{ stock.market if stock else "" }} {{ stock.symbol if stock else stock_id }}
+  {{ stock.market if stock else "" }} {{ stock.symbol if stock else stock_id }}{% if stock and stock.name %} {{ stock.name }}{% endif %}
 {%- endmacro %}
 
-<section class="panel">
+<nav class="info-jump panel subtle-panel">
+  <a href="#news">&#x65B0;&#x95FB; {{ data.news | length }}</a>
+  <a href="#announcements">&#x516C;&#x544A; {{ data.announcements | length }}</a>
+  <a href="#quotes">&#x884C;&#x60C5; {{ data.quotes | length }}</a>
+  <a href="#history">&#x5386;&#x53F2;&#x884C;&#x60C5; {{ data.history | length }}</a>
+  <a href="#trading">&#x4EA4;&#x6613;&#x6570;&#x636E; {{ data.trading | length }}</a>
+  <a href="#order-book">&#x76D8;&#x53E3; {{ data.order_book | length }}</a>
+  <a href="#macro">&#x5B8F;&#x89C2; {{ data.macro | length }}</a>
+</nav>
+
+<section id="news" class="panel">
   <form method="post" action="/info/news/delete">
     <div class="section-head">
-      <h2>新闻</h2>
+      <h2>&#x65B0;&#x95FB;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".news-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".news-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
     {% for item in data.news %}
@@ -30,25 +40,25 @@
         <input class="news-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.created_at | beijing_time }}</p>
+          <p>{{ stock_label(item.stock_id) }} &middot; {{ item.source }} &middot; {{ item.created_at | beijing_time }}</p>
           <p class="clean-summary">{{ item.summary | clean_text }}</p>
-          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">&#x6253;&#x5F00;&#x6765;&#x6E90;</a>{% endif %}
         </div>
-        <button class="ghost danger" type="submit" formaction="/info/news/{{ item.id }}/delete">删除</button>
+        <button class="ghost danger" type="submit" formaction="/info/news/{{ item.id }}/delete">&#x5220;&#x9664;</button>
       </article>
     {% else %}
-      <p class="muted">暂无新闻。</p>
+      <p class="muted">&#x6682;&#x65E0;&#x65B0;&#x95FB;&#x3002;</p>
     {% endfor %}
   </form>
 </section>
 
-<section class="panel">
+<section id="announcements" class="panel">
   <form method="post" action="/info/announcements/delete">
     <div class="section-head">
-      <h2>公告</h2>
+      <h2>&#x516C;&#x544A;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".announcement-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".announcement-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
     {% for item in data.announcements %}
@@ -56,139 +66,143 @@
         <input class="announcement-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ (item.published_at or item.created_at) | beijing_time("%Y-%m-%d") }}</p>
+          <p>{{ stock_label(item.stock_id) }} &middot; {{ item.source }} &middot; {{ (item.published_at or item.created_at) | beijing_time("%Y-%m-%d") }}</p>
           <p class="clean-summary">{{ item.summary | clean_text }}</p>
-          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开公告</a>{% endif %}
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">&#x6253;&#x5F00;&#x516C;&#x544A;</a>{% endif %}
         </div>
-        <button class="ghost danger" type="submit" formaction="/info/announcements/{{ item.id }}/delete">删除</button>
+        <button class="ghost danger" type="submit" formaction="/info/announcements/{{ item.id }}/delete">&#x5220;&#x9664;</button>
       </article>
     {% else %}
-      <p class="muted">暂无公告。</p>
+      <p class="muted">&#x6682;&#x65E0;&#x516C;&#x544A;&#x3002;</p>
     {% endfor %}
   </form>
 </section>
 
-<section class="panel">
+<section id="quotes" class="panel">
   <form method="post" action="/info/quotes/delete">
     <div class="section-head">
-      <h2>行情</h2>
+      <h2>&#x884C;&#x60C5;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".quote-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".quote-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
-    <table>
-      <thead><tr><th></th><th>股票</th><th>价格</th><th>涨跌幅</th><th>成交量</th><th>来源</th><th>时间</th><th></th></tr></thead>
-      <tbody>
-      {% for item in data.quotes %}
-        <tr>
-          <td><input class="quote-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
-          <td>{{ stock_label(item.stock_id) }}</td>
-          <td>{{ item.price }}</td>
-          <td>{{ item.change_percent }}</td>
-          <td>{{ item.volume }}</td>
-          <td>{{ item.source }}</td>
-          <td>{{ item.observed_at | beijing_time }}</td>
-          <td><button class="ghost danger" type="submit" formaction="/info/quotes/{{ item.id }}/delete">删除</button></td>
-        </tr>
-      {% else %}
-        <tr><td colspan="8" class="empty-cell">暂无行情。</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th></th><th>&#x80A1;&#x7968;</th><th>&#x4EF7;&#x683C;</th><th>&#x6DA8;&#x8DCC;&#x5E45;</th><th>&#x6210;&#x4EA4;&#x91CF;</th><th>&#x6765;&#x6E90;</th><th>&#x65F6;&#x95F4;</th><th></th></tr></thead>
+        <tbody>
+        {% for item in data.quotes %}
+          <tr>
+            <td><input class="quote-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
+            <td>{{ stock_label(item.stock_id) }}</td>
+            <td>{{ item.price }}</td>
+            <td>{{ item.change_percent }}</td>
+            <td>{{ item.volume }}</td>
+            <td>{{ item.source }}</td>
+            <td>{{ item.observed_at | beijing_time }}</td>
+            <td><button class="ghost danger" type="submit" formaction="/info/quotes/{{ item.id }}/delete">&#x5220;&#x9664;</button></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="8" class="empty-cell">&#x6682;&#x65E0;&#x884C;&#x60C5;&#x3002;</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </form>
 </section>
 
-<section class="panel">
+<section id="history" class="panel">
   <form method="post" action="/info/history/delete">
     <div class="section-head">
-      <h2>历史行情</h2>
+      <h2>&#x5386;&#x53F2;&#x884C;&#x60C5;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".history-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".history-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
-    <table>
-      <thead><tr><th></th><th>股票</th><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>成交量</th><th>来源</th><th></th></tr></thead>
-      <tbody>
-      {% for item in data.history %}
-        <tr>
-          <td><input class="history-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
-          <td>{{ stock_label(item.stock_id) }}</td>
-          <td>{{ item.trade_date | beijing_time("%Y-%m-%d") }}</td>
-          <td>{{ item.open }}</td>
-          <td>{{ item.high }}</td>
-          <td>{{ item.low }}</td>
-          <td>{{ item.close }}</td>
-          <td>{{ item.volume }}</td>
-          <td>{{ item.source }}</td>
-          <td><button class="ghost danger" type="submit" formaction="/info/history/{{ item.id }}/delete">删除</button></td>
-        </tr>
-      {% else %}
-        <tr><td colspan="10" class="empty-cell">暂无历史行情。</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th></th><th>&#x80A1;&#x7968;</th><th>&#x65E5;&#x671F;</th><th>&#x5F00;&#x76D8;</th><th>&#x6700;&#x9AD8;</th><th>&#x6700;&#x4F4E;</th><th>&#x6536;&#x76D8;</th><th>&#x6210;&#x4EA4;&#x91CF;</th><th>&#x6765;&#x6E90;</th><th></th></tr></thead>
+        <tbody>
+        {% for item in data.history %}
+          <tr>
+            <td><input class="history-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
+            <td>{{ stock_label(item.stock_id) }}</td>
+            <td>{{ item.trade_date | beijing_time("%Y-%m-%d") }}</td>
+            <td>{{ item.open }}</td>
+            <td>{{ item.high }}</td>
+            <td>{{ item.low }}</td>
+            <td>{{ item.close }}</td>
+            <td>{{ item.volume }}</td>
+            <td>{{ item.source }}</td>
+            <td><button class="ghost danger" type="submit" formaction="/info/history/{{ item.id }}/delete">&#x5220;&#x9664;</button></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10" class="empty-cell">&#x6682;&#x65E0;&#x5386;&#x53F2;&#x884C;&#x60C5;&#x3002;</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </form>
 </section>
 
-<section class="panel">
+<section id="trading" class="panel">
   <form method="post" action="/info/trading/delete">
     <div class="section-head">
-      <h2>交易数据</h2>
+      <h2>&#x4EA4;&#x6613;&#x6570;&#x636E;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".trading-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".trading-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
     {% for item in data.trading %}
       <article class="info-item selectable-record">
         <input class="trading-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
-          <strong>{{ stock_label(item.stock_id) }} · {{ item.source }}</strong>
-          <p>价格 {{ item.price }}，涨跌幅 {{ item.change_percent }}，成交量 {{ item.volume }}，成交额 {{ item.turnover or "-" }}</p>
+          <strong>{{ stock_label(item.stock_id) }} &middot; {{ item.source }}</strong>
+          <p>&#x4EF7;&#x683C; {{ item.price }}&#xFF0C;&#x6DA8;&#x8DCC;&#x5E45; {{ item.change_percent }}&#xFF0C;&#x6210;&#x4EA4;&#x91CF; {{ item.volume }}&#xFF0C;&#x6210;&#x4EA4;&#x989D; {{ item.turnover or "-" }}</p>
           <pre>{{ item.raw_data }}</pre>
         </div>
-        <button class="ghost danger" type="submit" formaction="/info/trading/{{ item.id }}/delete">删除</button>
+        <button class="ghost danger" type="submit" formaction="/info/trading/{{ item.id }}/delete">&#x5220;&#x9664;</button>
       </article>
     {% else %}
-      <p class="muted">暂无交易数据。</p>
+      <p class="muted">&#x6682;&#x65E0;&#x4EA4;&#x6613;&#x6570;&#x636E;&#x3002;</p>
     {% endfor %}
   </form>
 </section>
 
-<section class="panel">
+<section id="order-book" class="panel">
   <form method="post" action="/info/order_book/delete">
     <div class="section-head">
-      <h2>盘口</h2>
+      <h2>&#x76D8;&#x53E3;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".order-book-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".order-book-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
     {% for item in data.order_book %}
       <article class="info-item selectable-record">
         <input class="order-book-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
-          <strong>{{ stock_label(item.stock_id) }} · {{ item.source }}</strong>
+          <strong>{{ stock_label(item.stock_id) }} &middot; {{ item.source }}</strong>
           <p>{{ item.observed_at | beijing_time }}</p>
           <pre>{{ item.levels }}</pre>
         </div>
-        <button class="ghost danger" type="submit" formaction="/info/order_book/{{ item.id }}/delete">删除</button>
+        <button class="ghost danger" type="submit" formaction="/info/order_book/{{ item.id }}/delete">&#x5220;&#x9664;</button>
       </article>
     {% else %}
-      <p class="muted">暂无盘口数据。免费接口可能临时断开连接。</p>
+      <p class="muted">&#x6682;&#x65E0;&#x76D8;&#x53E3;&#x6570;&#x636E;&#x3002;&#x514D;&#x8D39;&#x63A5;&#x53E3;&#x53EF;&#x80FD;&#x4E34;&#x65F6;&#x65AD;&#x5F00;&#x8FDE;&#x63A5;&#x3002;</p>
     {% endfor %}
   </form>
 </section>
 
-<section class="panel">
+<section id="macro" class="panel">
   <form method="post" action="/info/macro/delete">
     <div class="section-head">
-      <h2>宏观</h2>
+      <h2>&#x5B8F;&#x89C2;</h2>
       <div class="bulk-toolbar compact-toolbar">
-        <label class="inline-check"><input type="checkbox" data-select-all=".macro-check"> 全选</label>
-        <button class="ghost danger" type="submit">删除所选</button>
+        <label class="inline-check"><input type="checkbox" data-select-all=".macro-check"> &#x5168;&#x9009;</label>
+        <button class="ghost danger" type="submit">&#x5220;&#x9664;&#x6240;&#x9009;</button>
       </div>
     </div>
     {% for item in data.macro %}
@@ -196,14 +210,14 @@
         <input class="macro-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ item.source }} · {{ item.created_at | beijing_time }}</p>
+          <p>{{ item.source }} &middot; {{ item.created_at | beijing_time }}</p>
           <p class="clean-summary">{{ item.summary | clean_text }}</p>
-          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
+          {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">&#x6253;&#x5F00;&#x6765;&#x6E90;</a>{% endif %}
         </div>
-        <button class="ghost danger" type="submit" formaction="/info/macro/{{ item.id }}/delete">删除</button>
+        <button class="ghost danger" type="submit" formaction="/info/macro/{{ item.id }}/delete">&#x5220;&#x9664;</button>
       </article>
     {% else %}
-      <p class="muted">暂无宏观消息。</p>
+      <p class="muted">&#x6682;&#x65E0;&#x5B8F;&#x89C2;&#x6D88;&#x606F;&#x3002;</p>
     {% endfor %}
   </form>
 </section>

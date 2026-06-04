@@ -7,6 +7,17 @@ from app.schemas import NormalizedHistoricalPrice
 from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
 
 
+def _u(*codepoints: int) -> str:
+    return "".join(chr(codepoint) for codepoint in codepoints)
+
+
+GOOGL_HISTORY_REQUEST = (
+    _u(0x8BF7, 0x83B7, 0x53D6)
+    + "GOOGL"
+    + _u(0x6700, 0x8FD1, 0x4E00, 0x4E2A, 0x6708, 0x7684, 0x884C, 0x60C5, 0x6570, 0x636E)
+)
+
+
 class FakeHistoryProvider:
     def fetch_historical_prices(self, market: str, symbol: str, period: str):
         assert market == "US"
@@ -30,7 +41,7 @@ class FakeHistoryProvider:
 def test_plan_fetch_from_natural_language() -> None:
     stock = Stock(id=1, market="US", symbol="GOOGL", name="Alphabet Inc.")
 
-    plan = plan_fetch_from_text("请获取GOOGL最近一个月的行情数据", [stock])
+    plan = plan_fetch_from_text(GOOGL_HISTORY_REQUEST, [stock])
 
     assert plan is not None
     assert plan.symbol == "GOOGL"
@@ -39,7 +50,7 @@ def test_plan_fetch_from_natural_language() -> None:
 
 
 def test_plan_fetch_symbol_without_spaces() -> None:
-    plan = plan_fetch_from_text("请获取GOOGL最近一个月的行情数据", [])
+    plan = plan_fetch_from_text(GOOGL_HISTORY_REQUEST, [])
 
     assert plan is not None
     assert plan.symbol == "GOOGL"
@@ -55,7 +66,7 @@ def test_execute_fetch_plan_saves_history() -> None:
         session.add(stock)
         session.commit()
         session.refresh(stock)
-        plan = plan_fetch_from_text("请获取GOOGL最近一个月的行情数据", [stock])
+        plan = plan_fetch_from_text(GOOGL_HISTORY_REQUEST, [stock])
         assert plan is not None
 
         result = execute_fetch_plan(session, plan, provider=FakeHistoryProvider())

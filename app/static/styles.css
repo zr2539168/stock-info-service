@@ -122,6 +122,41 @@ time {
   max-width: 760px;
 }
 
+.subtle-panel {
+  box-shadow: none;
+}
+
+.info-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+
+.info-jump a {
+  background: #f2f6f8;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 10px;
+}
+
+.info-jump a:hover {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table-scroll table {
+  min-width: 860px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
