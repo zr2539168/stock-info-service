@@ -38,6 +38,15 @@ def latest_quote(session: Session, stock_id: int) -> MarketQuote | None:
     ).first()
 
 
+def latest_trading_snapshot(session: Session, stock_id: int) -> TradingData | None:
+    return session.exec(
+        select(TradingData)
+        .where(TradingData.stock_id == stock_id)
+        .order_by(col(TradingData.observed_at).desc())
+        .limit(1)
+    ).first()
+
+
 def collect_quotes(session: Session, provider: MarketDataProvider | None = None) -> int:
     provider = provider or MarketDataProvider()
     count = 0
@@ -71,6 +80,7 @@ def collect_market_details(session: Session, provider: MarketDataProvider | None
             session.add(_institutional_to_model(stock.id or 0, institutional))
             count += 1
     session.commit()
+    evaluate_alerts(session)
     return count
 
 
@@ -244,7 +254,7 @@ def evaluate_alerts(session: Session) -> list[AlertEvent]:
     events: list[AlertEvent] = []
     rules = session.exec(select(AlertRule).where(AlertRule.enabled == True)).all()  # noqa: E712
     for rule in rules:
-        quote = latest_quote(session, rule.stock_id)
+        quote = _latest_alert_quote(session, rule.stock_id)
         recent_news = session.exec(
             select(NewsItem)
             .where(NewsItem.stock_id == rule.stock_id)
@@ -259,6 +269,23 @@ def evaluate_alerts(session: Session) -> list[AlertEvent]:
             events.append(event)
     session.commit()
     return events
+
+
+def _latest_alert_quote(session: Session, stock_id: int) -> MarketQuote | None:
+    quote = latest_quote(session, stock_id)
+    trading = latest_trading_snapshot(session, stock_id)
+    if trading is None:
+        return quote
+    if quote is not None and quote.observed_at >= trading.observed_at:
+        return quote
+    return MarketQuote(
+        stock_id=stock_id,
+        price=trading.price,
+        change_percent=trading.change_percent,
+        volume=trading.volume,
+        source=trading.source,
+        observed_at=trading.observed_at,
+    )
 
 
 def start_job(session: Session, name: str) -> FetchJobRun:

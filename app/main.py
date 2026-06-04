@@ -283,6 +283,7 @@ def new_chat(session: Session = Depends(get_session)):
 @app.get("/alerts", response_class=HTMLResponse)
 def alerts(request: Request, session: Session = Depends(get_session)):
     stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
+    stock_map = {stock.id: stock for stock in stocks}
     rules = session.exec(select(AlertRule).order_by(col(AlertRule.created_at).desc())).all()
     events = session.exec(select(AlertEvent).order_by(col(AlertEvent.created_at).desc()).limit(30)).all()
     return templates.TemplateResponse(
@@ -290,6 +291,7 @@ def alerts(request: Request, session: Session = Depends(get_session)):
         "alerts.html",
         {
             "stocks": stocks,
+            "stock_map": stock_map,
             "rules": rules,
             "events": events,
             "message": request.query_params.get("message", ""),

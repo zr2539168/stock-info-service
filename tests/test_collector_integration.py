@@ -3,7 +3,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from datetime import datetime, timezone
 
 from app.models import AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, Stock
-from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote
+from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
 from app.services.collector import build_context, collect_market_details, collect_quotes
 
 
@@ -39,6 +39,24 @@ class FakeDetailsProvider:
             sample_days=20,
             raw_data="{}",
         )
+
+
+class FakeTradingAlertProvider:
+    def fetch_trading_data(self, market: str, symbol: str):
+        return NormalizedTradingData(
+            market=market,
+            symbol=symbol,
+            price=12,
+            change_percent=1,
+            volume=5000,
+            source="fake trading",
+        )
+
+    def fetch_order_book(self, market: str, symbol: str):
+        return None
+
+    def fetch_institutional_flow(self, market: str, symbol: str):
+        return None
 
 
 def test_collect_quotes_triggers_alert() -> None:
@@ -120,3 +138,22 @@ def test_collect_market_details_saves_institutional_flow() -> None:
         assert item is not None
         assert item.vwap_proxy == 101.2
         assert "vwap_proxy=101.2" in context
+
+
+def test_collect_market_details_can_trigger_volume_alert_from_trading_data() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        session.add(AlertRule(stock_id=stock.id or 0, rule_type="volume_above", threshold=1000, name="volume"))
+        session.commit()
+
+        collect_market_details(session, FakeTradingAlertProvider())
+        event = session.exec(select(AlertEvent)).first()
+
+        assert event is not None
+        assert "volume" in event.message
