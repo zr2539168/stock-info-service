@@ -41,6 +41,7 @@ from app.services.collector import (
     collect_news,
     collect_quotes,
     generate_daily_brief,
+    push_pending_alert_events,
 )
 from app.services.data_sources import StockIdentityProvider
 from app.services.nl_alerts import parse_natural_alert_with_ai
@@ -428,17 +429,22 @@ def jobs(request: Request, session: Session = Depends(get_session)):
 async def run_job(job_name: str, session: Session = Depends(get_session)):
     if job_name == "quotes":
         collect_quotes(session)
+        await push_pending_alert_events(session)
     elif job_name == "details":
         collect_market_details(session)
+        await push_pending_alert_events(session)
     elif job_name == "news":
         await collect_news(session)
+        await push_pending_alert_events(session)
     elif job_name == "announcements":
         await collect_announcements(session)
     elif job_name == "macro":
         await collect_macro(session)
     elif job_name == "all":
         await collect_all_information(session)
+        await push_pending_alert_events(session)
     elif job_name == "brief":
         await collect_all_information(session)
+        await push_pending_alert_events(session)
         await generate_daily_brief(session, push=False)
     return redirect("/jobs")

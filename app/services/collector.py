@@ -271,6 +271,25 @@ def evaluate_alerts(session: Session) -> list[AlertEvent]:
     return events
 
 
+async def push_pending_alert_events(session: Session, client: PushDeerClient | None = None) -> int:
+    events = session.exec(
+        select(AlertEvent).where(AlertEvent.pushed == False).order_by(col(AlertEvent.created_at)).limit(20)  # noqa: E712
+    ).all()
+    if not events:
+        return 0
+    pusher = client or PushDeerClient(get_runtime_config(session))
+    pushed = 0
+    for event in events:
+        result = await pusher.push("Stock Info Alert", event.message)
+        if not result.ok:
+            continue
+        event.pushed = True
+        session.add(event)
+        pushed += 1
+    session.commit()
+    return pushed
+
+
 def _latest_alert_quote(session: Session, stock_id: int) -> MarketQuote | None:
     quote = latest_quote(session, stock_id)
     trading = latest_trading_snapshot(session, stock_id)

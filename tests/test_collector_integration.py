@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 from app.models import AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, Stock
 from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
-from app.services.collector import build_context, collect_market_details, collect_quotes
+from app.services.collector import build_context, collect_market_details, collect_quotes, push_pending_alert_events
+
+import asyncio
 
 
 class FakeProvider:
@@ -57,6 +59,17 @@ class FakeTradingAlertProvider:
 
     def fetch_institutional_flow(self, market: str, symbol: str):
         return None
+
+
+class FakePushClient:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str]] = []
+
+    async def push(self, title: str, text: str):
+        from app.services.pushdeer import PushResult
+
+        self.messages.append((title, text))
+        return PushResult(True, "ok")
 
 
 def test_collect_quotes_triggers_alert() -> None:
@@ -157,3 +170,26 @@ def test_collect_market_details_can_trigger_volume_alert_from_trading_data() -> 
 
         assert event is not None
         assert "volume" in event.message
+
+
+def test_push_pending_alert_events_marks_events_pushed() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        event = AlertEvent(rule_id=1, stock_id=stock.id or 0, message="alert")
+        session.add(event)
+        session.commit()
+        client = FakePushClient()
+
+        pushed = asyncio.run(push_pending_alert_events(session, client))
+        updated = session.get(AlertEvent, event.id)
+
+        assert pushed == 1
+        assert updated is not None
+        assert updated.pushed
+        assert client.messages == [("Stock Info Alert", "alert")]

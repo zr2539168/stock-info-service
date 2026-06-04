@@ -17,6 +17,7 @@ from app.services.collector import (
     collect_quotes,
     finish_job,
     generate_daily_brief,
+    push_pending_alert_events,
     start_job,
 )
 
@@ -47,6 +48,7 @@ def _run_quotes_job() -> None:
         run = start_job(session, "quotes")
         try:
             collect_quotes(session)
+            asyncio.run(push_pending_alert_events(session))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
@@ -57,6 +59,7 @@ def _run_market_details_job() -> None:
         run = start_job(session, "market_details")
         try:
             collect_market_details(session)
+            asyncio.run(push_pending_alert_events(session))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
@@ -67,6 +70,7 @@ def _run_news_job() -> None:
         run = start_job(session, "news")
         try:
             asyncio.run(collect_news(session))
+            asyncio.run(push_pending_alert_events(session))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
@@ -97,6 +101,7 @@ def _run_brief_job() -> None:
         run = start_job(session, "daily_brief")
         try:
             asyncio.run(collect_all_information(session))
+            asyncio.run(push_pending_alert_events(session))
             asyncio.run(generate_daily_brief(session, push=True))
             finish_job(session, run, "success")
         except Exception as exc:
