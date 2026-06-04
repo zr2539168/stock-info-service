@@ -42,7 +42,7 @@ from app.services.collector import (
     generate_daily_brief,
 )
 from app.services.data_sources import StockIdentityProvider
-from app.services.nl_alerts import parse_natural_alert
+from app.services.nl_alerts import parse_natural_alert_with_ai
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import all_settings, get_runtime_config, set_setting
 
@@ -318,16 +318,22 @@ def add_alert(
 
 
 @app.post("/alerts/natural")
-def add_natural_alert(
+async def add_natural_alert(
     description: str = Form(...),
     cooldown_minutes: int = Form(30),
     session: Session = Depends(get_session),
 ):
     stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
-    plan = parse_natural_alert(description, stocks, cooldown_minutes)
-    if plan is None:
-        query = urlencode({"error": "未能识别自然语言规则，请包含股票代码/名称、条件和阈值或关键词。"})
+    result = await parse_natural_alert_with_ai(
+        description,
+        stocks,
+        DeepSeekClient(get_runtime_config(session)),
+        cooldown_minutes,
+    )
+    if not result.ok or result.plan is None:
+        query = urlencode({"error": f"AI 未能解析该规则：{result.error}"})
         return redirect(f"/alerts?{query}")
+    plan = result.plan
     session.add(
         AlertRule(
             stock_id=plan.stock_id,
@@ -339,7 +345,7 @@ def add_natural_alert(
         )
     )
     session.commit()
-    query = urlencode({"message": "已根据自然语言描述添加监控规则。"})
+    query = urlencode({"message": "AI 已根据自然语言描述添加监控规则。"})
     return redirect(f"/alerts?{query}")
 
 

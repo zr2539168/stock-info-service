@@ -62,6 +62,34 @@ class DeepSeekClient:
         except Exception as exc:
             return AiResult(False, fallback_summary(user_prompt, context), str(exc))
 
+    async def complete_json(self, system_prompt: str, user_prompt: str) -> AiResult:
+        if not self.config.deepseek_api_key:
+            return AiResult(False, "", "DeepSeek API Key is not configured")
+
+        payload = {
+            "model": self.config.deepseek_model or "deepseek-v4-flash",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json",
+        }
+        base_url = self.config.deepseek_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                return AiResult(True, content)
+        except Exception as exc:
+            return AiResult(False, "", str(exc))
+
     async def test_connection(self) -> AiResult:
         return await self.complete("用一句话回复：连接正常。", "")
 
