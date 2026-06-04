@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 from app.models import AlertRule, MarketQuote, NewsItem
 
 
+def _u(*codepoints: int) -> str:
+    return "".join(chr(codepoint) for codepoint in codepoints)
+
+
 def should_trigger(rule: AlertRule, quote: MarketQuote | None, news: list[NewsItem] | None = None) -> bool:
     if not rule.enabled:
         return False
@@ -32,9 +36,15 @@ def should_trigger(rule: AlertRule, quote: MarketQuote | None, news: list[NewsIt
 
 
 def alert_message(rule: AlertRule, quote: MarketQuote | None) -> str:
-    price = "未知" if quote is None or quote.price is None else f"{quote.price:.3f}"
-    pct = "未知" if quote is None or quote.change_percent is None else f"{quote.change_percent:.2f}%"
+    price = _u(0x672A, 0x77E5) if quote is None or quote.price is None else f"{quote.price:.3f}"
+    pct = _u(0x672A, 0x77E5) if quote is None or quote.change_percent is None else f"{quote.change_percent:.2f}%"
     if rule.rule_type == "keyword":
-        return f"提醒「{rule.name or rule.keyword}」触发：匹配到关键词 {rule.keyword}。"
-    return f"提醒「{rule.name or rule.rule_type}」触发：当前价格 {price}，涨跌幅 {pct}。"
-
+        return (
+            f"{_u(0x63D0, 0x9192)}{_u(0x300C)}{rule.name or rule.keyword}{_u(0x300D)}"
+            f"{_u(0x89E6, 0x53D1, 0xFF1A, 0x5339, 0x914D, 0x5230, 0x5173, 0x952E, 0x8BCD)} {rule.keyword}{_u(0x3002)}"
+        )
+    return (
+        f"{_u(0x63D0, 0x9192)}{_u(0x300C)}{rule.name or rule.rule_type}{_u(0x300D)}"
+        f"{_u(0x89E6, 0x53D1, 0xFF1A, 0x5F53, 0x524D, 0x4EF7, 0x683C)} {price}"
+        f"{_u(0xFF0C, 0x6DA8, 0x8DCC, 0x5E45)} {pct}{_u(0x3002)}"
+    )

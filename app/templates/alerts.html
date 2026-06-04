@@ -2,14 +2,42 @@
 {% block content %}
 <header class="page-head">
   <div>
-    <h1>监控提醒</h1>
-    <p>为自选股设置价格、涨跌幅、成交量或关键词触发规则。</p>
+    <h1>&#x76D1;&#x63A7;&#x63D0;&#x9192;</h1>
+    <p>&#x4E3A;&#x81EA;&#x9009;&#x80A1;&#x8BBE;&#x7F6E;&#x4EF7;&#x683C;&#x3001;&#x6DA8;&#x8DCC;&#x5E45;&#x3001;&#x6210;&#x4EA4;&#x91CF;&#x6216;&#x5173;&#x952E;&#x8BCD;&#x89E6;&#x53D1;&#x89C4;&#x5219;&#x3002;</p>
   </div>
 </header>
+
+{% if message %}<div class="notice success">{{ message }}</div>{% endif %}
+{% if error %}<div class="notice error">{{ error }}</div>{% endif %}
+
 <section class="panel">
+  <div class="section-head">
+    <h2>&#x81EA;&#x7136;&#x8BED;&#x8A00;&#x89C4;&#x5219;</h2>
+  </div>
+  <form class="natural-alert-form" method="post" action="/alerts/natural">
+    <label class="field">
+      <span>&#x89C4;&#x5219;&#x63CF;&#x8FF0;</span>
+      <textarea name="description" rows="3" required placeholder="&#x4F8B;&#x5982;&#xFF1A;159501 &#x4EF7;&#x683C;&#x8DCC;&#x7834; 2.1 &#x63A8;&#x9001;&#xFF1B;GOOGL &#x6DA8;&#x5E45;&#x8D85;&#x8FC7; 5% &#x63D0;&#x9192;&#xFF1B;&#x5C0F;&#x7C73;&#x516C;&#x544A;&#x51FA;&#x73B0;&#x56DE;&#x8D2D;&#x65F6;&#x901A;&#x77E5;&#x6211;"></textarea>
+    </label>
+    <div class="inline-form-row">
+      <label class="field compact-field">
+        <span>&#x51B7;&#x5374;&#x5206;&#x949F;</span>
+        <input name="cooldown_minutes" type="number" value="30" min="1">
+      </label>
+      <div class="form-submit">
+        <button type="submit">&#x89E3;&#x6790;&#x5E76;&#x6DFB;&#x52A0;</button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="section-head">
+    <h2>&#x624B;&#x52A8;&#x89C4;&#x5219;</h2>
+  </div>
   <form class="alert-form" method="post" action="/alerts">
     <label class="field">
-      <span>股票</span>
+      <span>&#x80A1;&#x7968;</span>
       <select name="stock_id" required>
         {% for stock in stocks %}
           <option value="{{ stock.id }}">{{ stock.market }} {{ stock.symbol }} {{ stock.name }}</option>
@@ -17,58 +45,58 @@
       </select>
     </label>
     <label class="field">
-      <span>规则名称</span>
-      <input name="name" placeholder="例如：突破压力位">
+      <span>&#x89C4;&#x5219;&#x540D;&#x79F0;</span>
+      <input name="name" placeholder="&#x4F8B;&#x5982;&#xFF1A;&#x7A81;&#x7834;&#x538B;&#x529B;&#x4F4D;">
     </label>
     <label class="field">
-      <span>类型</span>
+      <span>&#x7C7B;&#x578B;</span>
       <select name="rule_type">
-        <option value="price_above">价格高于</option>
-        <option value="price_below">价格低于</option>
-        <option value="pct_change_above">涨幅高于</option>
-        <option value="volume_above">成交量高于</option>
-        <option value="keyword">关键词</option>
+        <option value="price_above">&#x4EF7;&#x683C;&#x9AD8;&#x4E8E;</option>
+        <option value="price_below">&#x4EF7;&#x683C;&#x4F4E;&#x4E8E;</option>
+        <option value="pct_change_above">&#x6DA8;&#x5E45;&#x9AD8;&#x4E8E;</option>
+        <option value="volume_above">&#x6210;&#x4EA4;&#x91CF;&#x9AD8;&#x4E8E;</option>
+        <option value="keyword">&#x5173;&#x952E;&#x8BCD;</option>
       </select>
     </label>
     <label class="field">
-      <span>阈值</span>
-      <input name="threshold" type="number" step="0.001" placeholder="价格/涨幅/成交量">
+      <span>&#x9608;&#x503C;</span>
+      <input name="threshold" type="number" step="0.001" placeholder="&#x4EF7;&#x683C;/&#x6DA8;&#x5E45;/&#x6210;&#x4EA4;&#x91CF;">
     </label>
     <label class="field">
-      <span>关键词</span>
-      <input name="keyword" placeholder="公告或新闻关键词">
+      <span>&#x5173;&#x952E;&#x8BCD;</span>
+      <input name="keyword" placeholder="&#x516C;&#x544A;&#x6216;&#x65B0;&#x95FB;&#x5173;&#x952E;&#x8BCD;">
     </label>
     <label class="field compact-field">
-      <span>冷却分钟</span>
+      <span>&#x51B7;&#x5374;&#x5206;&#x949F;</span>
       <input name="cooldown_minutes" type="number" value="30" min="1">
     </label>
     <div class="form-submit">
-      <button type="submit">添加规则</button>
+      <button type="submit">&#x6DFB;&#x52A0;&#x89C4;&#x5219;</button>
     </div>
   </form>
   <table class="data-table">
-    <thead><tr><th>规则</th><th>类型</th><th>阈值/关键词</th><th>状态</th><th></th></tr></thead>
+    <thead><tr><th>&#x89C4;&#x5219;</th><th>&#x7C7B;&#x578B;</th><th>&#x9608;&#x503C;/&#x5173;&#x952E;&#x8BCD;</th><th>&#x72B6;&#x6001;</th><th></th></tr></thead>
     <tbody>
     {% for rule in rules %}
       <tr>
         <td>{{ rule.name or "-" }}</td>
         <td>{{ rule.rule_type }}</td>
         <td>{{ rule.threshold or rule.keyword or "-" }}</td>
-        <td>{{ "启用" if rule.enabled else "停用" }}</td>
-        <td><form method="post" action="/alerts/{{ rule.id }}/toggle"><button type="submit">切换</button></form></td>
+        <td>{% if rule.enabled %}&#x542F;&#x7528;{% else %}&#x505C;&#x7528;{% endif %}</td>
+        <td><form method="post" action="/alerts/{{ rule.id }}/toggle"><button type="submit">&#x5207;&#x6362;</button></form></td>
       </tr>
     {% else %}
-      <tr><td colspan="5" class="empty-cell">暂无规则。</td></tr>
+      <tr><td colspan="5" class="empty-cell">&#x6682;&#x65E0;&#x89C4;&#x5219;&#x3002;</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </section>
 <section class="panel">
-  <h2>触发记录</h2>
+  <h2>&#x89E6;&#x53D1;&#x8BB0;&#x5F55;</h2>
   {% for event in events %}
     <article class="item"><strong>{{ event.created_at | beijing_time }}</strong><p>{{ event.message }}</p></article>
   {% else %}
-    <p class="muted">暂无触发记录。</p>
+    <p class="muted">&#x6682;&#x65E0;&#x89E6;&#x53D1;&#x8BB0;&#x5F55;&#x3002;</p>
   {% endfor %}
 </section>
 {% endblock %}

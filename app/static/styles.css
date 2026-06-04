@@ -514,6 +514,17 @@ pre {
   margin-bottom: 22px;
 }
 
+.natural-alert-form {
+  display: grid;
+  gap: 14px;
+}
+
+.inline-form-row {
+  display: flex;
+  align-items: end;
+  gap: 14px;
+}
+
 .field {
   display: grid;
   gap: 6px;
@@ -594,8 +605,11 @@ pre {
 
   .grid.three,
   .form-row,
+  .inline-form-row,
   .alert-form {
     grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .page-head {

@@ -42,6 +42,7 @@ from app.services.collector import (
     generate_daily_brief,
 )
 from app.services.data_sources import StockIdentityProvider
+from app.services.nl_alerts import parse_natural_alert
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import all_settings, get_runtime_config, set_setting
 
@@ -279,7 +280,17 @@ def alerts(request: Request, session: Session = Depends(get_session)):
     stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
     rules = session.exec(select(AlertRule).order_by(col(AlertRule.created_at).desc())).all()
     events = session.exec(select(AlertEvent).order_by(col(AlertEvent.created_at).desc()).limit(30)).all()
-    return templates.TemplateResponse(request, "alerts.html", {"stocks": stocks, "rules": rules, "events": events})
+    return templates.TemplateResponse(
+        request,
+        "alerts.html",
+        {
+            "stocks": stocks,
+            "rules": rules,
+            "events": events,
+            "message": request.query_params.get("message", ""),
+            "error": request.query_params.get("error", ""),
+        },
+    )
 
 
 @app.post("/alerts")
@@ -304,6 +315,32 @@ def add_alert(
     )
     session.commit()
     return redirect("/alerts")
+
+
+@app.post("/alerts/natural")
+def add_natural_alert(
+    description: str = Form(...),
+    cooldown_minutes: int = Form(30),
+    session: Session = Depends(get_session),
+):
+    stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
+    plan = parse_natural_alert(description, stocks, cooldown_minutes)
+    if plan is None:
+        query = urlencode({"error": "未能识别自然语言规则，请包含股票代码/名称、条件和阈值或关键词。"})
+        return redirect(f"/alerts?{query}")
+    session.add(
+        AlertRule(
+            stock_id=plan.stock_id,
+            name=plan.name,
+            rule_type=plan.rule_type,
+            threshold=plan.threshold,
+            keyword=plan.keyword,
+            cooldown_minutes=plan.cooldown_minutes,
+        )
+    )
+    session.commit()
+    query = urlencode({"message": "已根据自然语言描述添加监控规则。"})
+    return redirect(f"/alerts?{query}")
 
 
 @app.post("/alerts/{rule_id}/toggle")
