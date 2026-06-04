@@ -1,4 +1,14 @@
-from app.scheduler import build_scheduler, configure_market_open_brief_jobs
+from app.scheduler import build_scheduler, configure_collection_job, configure_market_open_brief_jobs
+
+
+def test_collection_job_is_registered_by_default() -> None:
+    scheduler = build_scheduler()
+    job_ids = {job.id for job in scheduler.get_jobs()}
+
+    assert "collect_all" in job_ids
+    assert "quotes" not in job_ids
+    assert "market_details" not in job_ids
+    assert "news" not in job_ids
 
 
 def test_market_open_brief_jobs_are_registered() -> None:
@@ -8,6 +18,15 @@ def test_market_open_brief_jobs_are_registered() -> None:
     assert "cn_open_brief" in job_ids
     assert "us_open_brief" in job_ids
     assert "daily_brief" not in job_ids
+
+
+def test_collection_job_can_be_disabled() -> None:
+    scheduler = build_scheduler()
+
+    configure_collection_job(scheduler, False, "0 * * * *")
+
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    assert "collect_all" not in job_ids
 
 
 def test_market_open_brief_jobs_can_be_disabled() -> None:

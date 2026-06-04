@@ -28,6 +28,7 @@ def init_db() -> None:
 
     SQLModel.metadata.create_all(engine)
     _migrate_alert_rule_push_mode()
+    _migrate_brief_scope_key()
     _mark_interrupted_jobs()
 
 
@@ -42,6 +43,19 @@ def _migrate_alert_rule_push_mode() -> None:
         return
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE alertrule ADD COLUMN push_mode VARCHAR(32) NOT NULL DEFAULT 'cooldown'"))
+
+
+def _migrate_brief_scope_key() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "brief" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("brief")}
+    if "scope_key" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE brief ADD COLUMN scope_key VARCHAR(128) NOT NULL DEFAULT ''"))
 
 
 def _mark_interrupted_jobs() -> None:

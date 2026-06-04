@@ -126,23 +126,22 @@ async def collect_all_information(session: Session) -> dict[str, int]:
     }
 
 
-async def collect_brief_information(session: Session) -> dict[str, int]:
-    return {
-        "quotes": await collect_quotes(session),
-        "news": await collect_news(session),
-        "announcements": await collect_announcements(session),
-        "macro": await collect_macro(session),
-    }
-
-
 async def generate_daily_brief(
     session: Session,
     stock_id: int | None = None,
     push: bool = False,
     scope_label: str | None = None,
+    markets: set[str] | None = None,
 ) -> Brief:
     cfg = get_runtime_config(session)
-    context = build_context(session, stock_id)
+    scope_key = _brief_scope_key(stock_id, markets)
+    previous_brief = _latest_brief_for_scope(session, scope_key, stock_id)
+    context = build_context(
+        session,
+        stock_id,
+        markets=markets,
+        new_since=previous_brief.generated_at if previous_brief else None,
+    )
     ai = DeepSeekClient(cfg)
     scope = scope_label or ("自选股" if stock_id is None else "个股")
     result = await ai.complete(build_brief_prompt(scope), context)
@@ -151,7 +150,14 @@ async def generate_daily_brief(
     base_title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
     title = f"{base_title}（北京时间 {generated_time}）"
     content = f"生成时间：北京时间 {generated_time}\n\n{result.content}"
-    brief = Brief(stock_id=stock_id, title=title, content=content, sources=context, generated_at=generated_at)
+    brief = Brief(
+        stock_id=stock_id,
+        scope_key=scope_key,
+        title=title,
+        content=content,
+        sources=context,
+        generated_at=generated_at,
+    )
     session.add(brief)
     session.commit()
     session.refresh(brief)
@@ -181,18 +187,29 @@ async def maybe_fetch_from_question(session: Session, question: str) -> str:
     return f"[自然语言抓取] {result.message}" if result.message else ""
 
 
-def build_context(session: Session, stock_id: int | None = None, query: str = "") -> str:
+def build_context(
+    session: Session,
+    stock_id: int | None = None,
+    query: str = "",
+    markets: set[str] | None = None,
+    new_since: datetime | None = None,
+) -> str:
     pieces: list[str] = []
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
+    market_stock_ids = [
+        item_id
+        for item_id, stock in stocks.items()
+        if item_id is not None and markets is not None and stock.market.upper() in markets
+    ]
     query_stock_ids = _matched_stock_ids(stocks, query) if query else []
-    quote_stmt = select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(20)
-    history_stmt = select(HistoricalPrice).order_by(col(HistoricalPrice.trade_date).desc()).limit(80)
-    trading_stmt = select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(20)
-    order_stmt = select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(10)
-    institutional_stmt = select(InstitutionalFlow).order_by(col(InstitutionalFlow.observed_at).desc()).limit(20)
-    news_stmt = select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(20)
-    announcement_stmt = select(Announcement).order_by(col(Announcement.created_at).desc()).limit(20)
-    macro_stmt = select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(10)
+    quote_stmt = select(MarketQuote)
+    history_stmt = select(HistoricalPrice)
+    trading_stmt = select(TradingData)
+    order_stmt = select(OrderBookSnapshot)
+    institutional_stmt = select(InstitutionalFlow)
+    news_stmt = select(NewsItem)
+    announcement_stmt = select(Announcement)
+    macro_stmt = select(MacroEvent)
     if stock_id is not None:
         quote_stmt = quote_stmt.where(MarketQuote.stock_id == stock_id)
         history_stmt = history_stmt.where(HistoricalPrice.stock_id == stock_id)
@@ -201,6 +218,14 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id == stock_id)
         news_stmt = news_stmt.where(NewsItem.stock_id == stock_id)
         announcement_stmt = announcement_stmt.where(Announcement.stock_id == stock_id)
+    elif markets is not None:
+        quote_stmt = quote_stmt.where(MarketQuote.stock_id.in_(market_stock_ids))
+        history_stmt = history_stmt.where(HistoricalPrice.stock_id.in_(market_stock_ids))
+        trading_stmt = trading_stmt.where(TradingData.stock_id.in_(market_stock_ids))
+        order_stmt = order_stmt.where(OrderBookSnapshot.stock_id.in_(market_stock_ids))
+        institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id.in_(market_stock_ids))
+        news_stmt = news_stmt.where(NewsItem.stock_id.in_(market_stock_ids))
+        announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(market_stock_ids))
     elif query_stock_ids:
         quote_stmt = quote_stmt.where(MarketQuote.stock_id.in_(query_stock_ids))
         history_stmt = history_stmt.where(HistoricalPrice.stock_id.in_(query_stock_ids))
@@ -211,30 +236,30 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(query_stock_ids))
     if query:
         like = f"%{query[:40]}%"
-        news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like))).limit(20)
+        news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like)))
 
-    for quote in session.exec(quote_stmt).all():
+    for quote in _prioritized_by_time(session, quote_stmt, MarketQuote.observed_at, 20, new_since):
         pieces.append(
             f"[行情] 股票={_stock_label(stocks, quote.stock_id)} price={quote.price} pct={quote.change_percent} "
             f"volume={quote.volume} source={quote.source} time={quote.observed_at}"
         )
-    for price in session.exec(history_stmt).all():
+    for price in _prioritized_by_time(session, history_stmt, HistoricalPrice.created_at, 80, new_since):
         pieces.append(
             f"[历史行情] 股票={_stock_label(stocks, price.stock_id)} date={price.trade_date.date()} "
             f"open={price.open} high={price.high} low={price.low} close={price.close} "
             f"volume={price.volume} source={price.source}"
         )
-    for trading in session.exec(trading_stmt).all():
+    for trading in _prioritized_by_time(session, trading_stmt, TradingData.observed_at, 20, new_since):
         pieces.append(
             f"[交易数据] 股票={_stock_label(stocks, trading.stock_id)} price={trading.price} pct={trading.change_percent} "
             f"volume={trading.volume} turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
         )
-    for order in session.exec(order_stmt).all():
+    for order in _prioritized_by_time(session, order_stmt, OrderBookSnapshot.observed_at, 10, new_since):
         pieces.append(
             f"[盘口] 股票={_stock_label(stocks, order.stock_id)} source={order.source} time={order.observed_at} "
             f"levels={compact_text(order.levels, 420)}"
         )
-    for flow in session.exec(institutional_stmt).all():
+    for flow in _prioritized_by_time(session, institutional_stmt, InstitutionalFlow.observed_at, 20, new_since):
         pieces.append(
             f"[机构成本/暗池代理] 股票={_stock_label(stocks, flow.stock_id)} "
             f"vwap_proxy={flow.vwap_proxy} cost_band={flow.cost_low}-{flow.cost_high} "
@@ -242,13 +267,60 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
             f"sample_days={flow.sample_days} source={flow.source} time={flow.observed_at} "
             f"raw={compact_text(flow.raw_data, 360)}"
         )
-    for item in session.exec(news_stmt).all():
+    for item in _prioritized_by_time(session, news_stmt, NewsItem.created_at, 20, new_since):
         pieces.append(f"[新闻] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
-    for item in session.exec(announcement_stmt).all():
+    for item in _prioritized_by_time(session, announcement_stmt, Announcement.created_at, 20, new_since):
         pieces.append(f"[公告] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
-    for item in session.exec(macro_stmt).all():
+    for item in _prioritized_by_time(session, macro_stmt, MacroEvent.created_at, 10, new_since):
         pieces.append(f"[宏观] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     return "\n".join(pieces) or "暂无本地采集资料。"
+
+
+def _brief_scope_key(stock_id: int | None, markets: set[str] | None = None) -> str:
+    if stock_id is not None:
+        return f"stock:{stock_id}"
+    if markets:
+        return "markets:" + ",".join(sorted(market.upper() for market in markets))
+    return "all"
+
+
+def _latest_brief_for_scope(session: Session, scope_key: str, stock_id: int | None) -> Brief | None:
+    brief = session.exec(
+        select(Brief).where(Brief.scope_key == scope_key).order_by(col(Brief.generated_at).desc()).limit(1)
+    ).first()
+    if brief is not None:
+        return brief
+    legacy_stmt = select(Brief).where(Brief.scope_key == "").order_by(col(Brief.generated_at).desc()).limit(1)
+    if scope_key == "all":
+        legacy_stmt = legacy_stmt.where(Brief.stock_id == None)  # noqa: E711
+    elif stock_id is not None:
+        legacy_stmt = legacy_stmt.where(Brief.stock_id == stock_id)
+    else:
+        return None
+    return session.exec(legacy_stmt).first()
+
+
+def _prioritized_by_time(
+    session: Session,
+    stmt,
+    time_column,
+    limit: int,
+    new_since: datetime | None,
+) -> list:
+    if new_since is None:
+        return session.exec(stmt.order_by(col(time_column).desc()).limit(limit)).all()
+
+    fresh_items = session.exec(
+        stmt.where(time_column > new_since).order_by(col(time_column).desc()).limit(limit)
+    ).all()
+    remaining = limit - len(fresh_items)
+    if remaining <= 0:
+        return fresh_items
+
+    fallback_items = session.exec(
+        stmt.where(time_column <= new_since).order_by(col(time_column).desc()).limit(remaining)
+    ).all()
+    return [*fresh_items, *fallback_items]
 
 
 def _stock_label(stocks: dict[int | None, Stock], stock_id: int | None) -> str:

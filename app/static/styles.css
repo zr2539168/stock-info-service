@@ -201,6 +201,16 @@ button:hover {
   background: var(--accent-dark);
 }
 
+button:disabled {
+  background: #c9d3dc;
+  color: #667085;
+  cursor: not-allowed;
+}
+
+button:disabled:hover {
+  background: #c9d3dc;
+}
+
 button.ghost {
   background: #eef2f6;
   color: var(--ink);

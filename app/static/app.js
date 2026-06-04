@@ -24,6 +24,7 @@ document.addEventListener("DOMContentLoaded", () => {
       updateCooldownField(item);
     }
   });
+  startCollectionButtonPolling();
 });
 
 document.addEventListener("submit", async (event) => {
@@ -128,6 +129,42 @@ function updateProgressJob(text) {
   if (node) {
     node.textContent = text;
   }
+}
+
+function startCollectionButtonPolling() {
+  const button = document.querySelector("[data-collection-button]");
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+  const update = async () => {
+    try {
+      const response = await fetch("/jobs/current", { cache: "no-store" });
+      if (!response.ok) {
+        return;
+      }
+      const data = await response.json();
+      const running = Array.isArray(data.running) ? data.running : [];
+      const collectionRunning = running.some((job) => isCollectionJob(job.job_name));
+      button.disabled = collectionRunning;
+      button.textContent = collectionRunning ? "后台正在抓取信息" : "手动抓取信息";
+    } catch (_error) {
+      // The button remains in its last known state if polling fails.
+    }
+  };
+  update();
+  window.setInterval(update, 5000);
+}
+
+function isCollectionJob(jobName) {
+  return [
+    "collect_all",
+    "manual_all",
+    "manual_quotes",
+    "manual_details",
+    "manual_news",
+    "manual_announcements",
+    "manual_macro",
+  ].includes(jobName);
 }
 
 function updateCooldownField(select) {

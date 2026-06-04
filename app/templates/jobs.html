@@ -3,13 +3,11 @@
 <header class="page-head">
   <h1>采集任务</h1>
   <div class="button-row">
-    <form method="post" action="/jobs/run/all" data-progress="正在抓取全部信息"><button type="submit">抓全部信息</button></form>
-    <form method="post" action="/jobs/run/quotes" data-progress="正在抓取行情"><button type="submit">抓行情</button></form>
-    <form method="post" action="/jobs/run/details" data-progress="正在抓取交易和盘口信息"><button type="submit">抓交易/盘口</button></form>
-    <form method="post" action="/jobs/run/news" data-progress="正在抓取新闻"><button type="submit">抓新闻</button></form>
-    <form method="post" action="/jobs/run/announcements" data-progress="正在抓取公告"><button type="submit">抓公告</button></form>
-    <form method="post" action="/jobs/run/macro" data-progress="正在抓取宏观信息"><button type="submit">抓宏观</button></form>
-    <form method="post" action="/jobs/run/brief" data-progress="正在抓取信息并生成 AI 简报"><button type="submit">抓取并生成简报</button></form>
+    <form method="post" action="/jobs/run/all" data-progress="正在抓取全部信息">
+      <button type="submit" data-collection-button {% if collection_running %}disabled{% endif %}>
+        {% if collection_running %}后台正在抓取信息{% else %}手动抓取信息{% endif %}
+      </button>
+    </form>
   </div>
 </header>
 <section class="panel">

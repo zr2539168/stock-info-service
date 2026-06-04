@@ -120,6 +120,7 @@ class MacroEvent(SQLModel, table=True):
 class Brief(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: Optional[int] = Field(default=None, index=True, foreign_key="stock.id")
+    scope_key: str = Field(default="", max_length=128, index=True)
     title: str = Field(max_length=255)
     content: str = Field(default="")
     sources: str = Field(default="")

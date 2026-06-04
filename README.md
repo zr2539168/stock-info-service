@@ -8,8 +8,9 @@
 
 - 自选股管理：市场、代码、名称、标签、启停状态。
 - 免费数据源优先：AKShare 为主，yfinance 补充美股/港股，RSS/官方披露源用于新闻和公告。
+- 后台抓取：服务启动后默认每 1 小时抓取一次全部信息，可在 Settings 页面关闭，也可在任务页手动抓取。
 - AI 简报：基于本地已采集数据生成中文摘要，带来源链接和风险提示。
-- 开盘后简报推送：可在 Settings 页面开启/关闭，并分别设置 A 股/港股和美股的工作日推送时间。
+- 开盘后简报推送：可在 Settings 页面开启/关闭，并分别设置 A 股/港股和美股的工作日推送时间；简报只使用对应市场的自选股资料。
 - AI 对话：围绕已有资料回答问题，避免脱离本地数据编造结论。
 - PushDeer：支持连接测试、开盘后简报推送、监控触发推送。
 - 监控规则：股价阈值、涨跌幅、成交量、关键词提醒，支持冷却循环推送和一次性推送。
@@ -49,7 +50,7 @@ http://127.0.0.1:8000
 2. `.env` 环境变量。
 3. 代码中的安全默认值。
 
-开盘后简报可在 Settings 页面显式开启/关闭并设置时间；保存到本地 SQLite 后会覆盖 `.env` 中的 `MARKET_OPEN_BRIEFS_ENABLED`、`CN_OPEN_BRIEF_CRON` 和 `US_OPEN_BRIEF_CRON`。
+后台抓取可在 Settings 页面显式开启/关闭，默认每 1 小时执行一次；开盘后简报可在 Settings 页面设置时间。保存到本地 SQLite 后会覆盖 `.env` 中的 `COLLECTION_ENABLED`、`MARKET_OPEN_BRIEFS_ENABLED`、`CN_OPEN_BRIEF_CRON` 和 `US_OPEN_BRIEF_CRON`。
 
 密钥默认脱敏显示，不会写入日志；`.env` 已在 `.gitignore` 中排除。
 

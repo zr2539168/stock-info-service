@@ -32,12 +32,17 @@ from app.models import (
     Stock,
     TradingData,
 )
-from app.scheduler import apply_market_open_brief_settings, build_scheduler, configure_market_open_brief_jobs
+from app.scheduler import (
+    apply_collection_settings,
+    apply_market_open_brief_settings,
+    build_scheduler,
+    configure_collection_job,
+    configure_market_open_brief_jobs,
+)
 from app.services.ai import DeepSeekClient
 from app.services.collector import (
     answer_question,
     collect_all_information,
-    collect_brief_information,
     collect_announcements,
     collect_macro,
     collect_market_details,
@@ -66,6 +71,7 @@ stock_identity_provider = StockIdentityProvider()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    apply_collection_settings(scheduler)
     apply_market_open_brief_settings(scheduler)
     scheduler.start()
     yield
@@ -194,20 +200,18 @@ def briefs(request: Request, session: Session = Depends(get_session)):
 
 
 @app.post("/briefs/generate")
-async def generate_brief(request: Request, push: bool = Form(False), session: Session = Depends(get_session)):
+async def generate_brief(request: Request, session: Session = Depends(get_session)):
     async def action(job_session: Session) -> None:
-        await collect_brief_information(job_session)
-        await generate_daily_brief(job_session, push=push)
+        await generate_daily_brief(job_session, push=True)
 
     if is_progress_request(request):
         run = start_background_job("manual_brief", action)
         return {"job_id": run.id, "redirect_url": "/briefs"}
 
     async def inline_action() -> None:
-        await collect_brief_information(session)
-        await generate_daily_brief(session, push=push)
+        await generate_daily_brief(session, push=True)
 
-    await run_tracked_job(session, "manual_brief", inline_action)
+    await run_tracked_job(session, "manual_brief", inline_action, use_collection_lock=False)
     return redirect("/briefs")
 
 
@@ -382,6 +386,7 @@ def save_settings(
     deepseek_model: str = Form(...),
     pushdeer_pushkey: str = Form(""),
     pushdeer_endpoint: str = Form(...),
+    collection_enabled: bool = Form(False),
     market_open_briefs_enabled: bool = Form(False),
     cn_open_brief_time: str = Form(...),
     us_open_brief_time: str = Form(...),
@@ -405,9 +410,12 @@ def save_settings(
     if pushdeer_pushkey.strip():
         set_setting(session, "pushdeer_pushkey", pushdeer_pushkey.strip())
     set_setting(session, "pushdeer_endpoint", pushdeer_endpoint.strip())
+    set_setting(session, "collection_enabled", "true" if collection_enabled else "false")
+    set_setting(session, "collect_all_cron", "0 * * * *")
     set_setting(session, "market_open_briefs_enabled", "true" if market_open_briefs_enabled else "false")
     set_setting(session, "cn_open_brief_cron", cn_open_brief_cron)
     set_setting(session, "us_open_brief_cron", us_open_brief_cron)
+    configure_collection_job(scheduler, collection_enabled, "0 * * * *")
     configure_market_open_brief_jobs(
         scheduler,
         market_open_briefs_enabled,
@@ -443,7 +451,8 @@ async def test_pushdeer(request: Request, session: Session = Depends(get_session
 @app.get("/jobs", response_class=HTMLResponse)
 def jobs(request: Request, session: Session = Depends(get_session)):
     items = session.exec(select(FetchJobRun).order_by(col(FetchJobRun.started_at).desc()).limit(50)).all()
-    return templates.TemplateResponse(request, "jobs.html", {"jobs": items})
+    collection_running = is_collection_running(session)
+    return templates.TemplateResponse(request, "jobs.html", {"jobs": items, "collection_running": collection_running})
 
 
 @app.get("/jobs/current")
@@ -485,28 +494,29 @@ async def run_job(job_name: str, request: Request, session: Session = Depends(ge
             await collect_all_information(job_session)
             await push_pending_alert_events(job_session)
         elif job_name == "brief":
-            await collect_brief_information(job_session)
             await push_pending_alert_events(job_session)
             await generate_daily_brief(job_session, push=False)
 
     if job_name in {"quotes", "details", "news", "announcements", "macro", "all", "brief"}:
         tracked_name = f"manual_{job_name}"
         if is_progress_request(request):
-            run = start_background_job(tracked_name, action)
+            run = start_background_job(tracked_name, action, use_collection_lock=is_collection_job_name(tracked_name))
             return {"job_id": run.id, "redirect_url": "/jobs"}
 
         async def inline_action() -> None:
             await action(session)
 
-        await run_tracked_job(session, tracked_name, inline_action)
+        await run_tracked_job(session, tracked_name, inline_action, use_collection_lock=is_collection_job_name(tracked_name))
     return redirect("/jobs")
 
 
-async def run_tracked_job(session: Session, job_name: str, action) -> None:
+async def run_tracked_job(session: Session, job_name: str, action, use_collection_lock: bool = True) -> None:
     run = start_job(session, job_name)
-    if not acquire_collection_job_lock():
-        finish_job(session, run, "skipped", "Another collection or brief job is already running.")
+    locked = False
+    if use_collection_lock and not acquire_collection_job_lock():
+        finish_job(session, run, "skipped", "Another collection job is already running.")
         return
+    locked = use_collection_lock
     try:
         await action()
         finish_job(session, run, "success")
@@ -514,7 +524,8 @@ async def run_tracked_job(session: Session, job_name: str, action) -> None:
         finish_job(session, run, "failed", str(exc))
         raise
     finally:
-        release_collection_job_lock()
+        if locked:
+            release_collection_job_lock()
 
 
 def _job_payload(job: FetchJobRun) -> dict[str, str | int | None]:
@@ -531,13 +542,14 @@ def _job_payload(job: FetchJobRun) -> dict[str, str | int | None]:
 
 def _job_label(job_name: str) -> str:
     return {
-        "manual_brief": "抓取信息并生成 AI 简报",
+        "manual_brief": "生成并推送 AI 简报",
         "manual_quotes": "抓取行情",
         "manual_details": "抓取交易和盘口信息",
         "manual_news": "抓取新闻",
         "manual_announcements": "抓取公告",
         "manual_macro": "抓取宏观信息",
         "manual_all": "抓取全部信息",
+        "collect_all": "定时抓取全部信息",
         "quotes": "定时抓取行情",
         "market_details": "定时抓取交易和盘口信息",
         "news": "定时抓取新闻",
@@ -552,7 +564,7 @@ def is_progress_request(request: Request) -> bool:
     return request.headers.get("x-progress-request") == "1"
 
 
-def start_background_job(job_name: str, action) -> FetchJobRun:
+def start_background_job(job_name: str, action, use_collection_lock: bool = True) -> FetchJobRun:
     with Session(engine) as session:
         run = start_job(session, job_name)
         run_id = run.id
@@ -562,16 +574,39 @@ def start_background_job(job_name: str, action) -> FetchJobRun:
             run = session.get(FetchJobRun, run_id)
             if run is None:
                 return
-            if not acquire_collection_job_lock():
-                finish_job(session, run, "skipped", "Another collection or brief job is already running.")
+            locked = False
+            if use_collection_lock and not acquire_collection_job_lock():
+                finish_job(session, run, "skipped", "Another collection job is already running.")
                 return
+            locked = use_collection_lock
             try:
                 asyncio.run(action(session))
                 finish_job(session, run, "success")
             except Exception as exc:
                 finish_job(session, run, "failed", str(exc))
             finally:
-                release_collection_job_lock()
+                if locked:
+                    release_collection_job_lock()
 
     Thread(target=runner, name=f"job-{job_name}-{run_id}", daemon=True).start()
     return run
+
+
+COLLECTION_JOB_NAMES = {
+    "collect_all",
+    "manual_all",
+    "manual_quotes",
+    "manual_details",
+    "manual_news",
+    "manual_announcements",
+    "manual_macro",
+}
+
+
+def is_collection_job_name(job_name: str) -> bool:
+    return job_name in COLLECTION_JOB_NAMES
+
+
+def is_collection_running(session: Session) -> bool:
+    running = session.exec(select(FetchJobRun).where(FetchJobRun.status == "running")).all()
+    return any(is_collection_job_name(job.job_name) for job in running)

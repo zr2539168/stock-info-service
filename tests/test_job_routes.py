@@ -29,7 +29,7 @@ def test_current_jobs_route_returns_running_jobs() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["running"][0]["job_name"] == "manual_brief"
-    assert payload["running"][0]["label"] == "抓取信息并生成 AI 简报"
+    assert payload["running"][0]["label"] == "生成并推送 AI 简报"
 
 
 def test_progress_job_request_returns_job_id(monkeypatch) -> None:

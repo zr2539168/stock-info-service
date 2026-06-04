@@ -128,6 +128,19 @@ def test_generate_daily_brief_includes_beijing_time(monkeypatch) -> None:
         assert brief.content.startswith("生成时间：北京时间 2026-06-04 08:05")
 
 
+def test_generate_daily_brief_stores_market_scope(monkeypatch) -> None:
+    import app.services.collector as collector
+
+    monkeypatch.setattr(collector, "DeepSeekClient", FakeDeepSeekClient)
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        brief = asyncio.run(generate_daily_brief(session, markets={"US"}))
+
+        assert brief.scope_key == "markets:US"
+
+
 def test_one_time_alert_disables_after_trigger() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
@@ -217,6 +230,71 @@ def test_build_context_filters_by_mentioned_stock() -> None:
 
         assert "GOOGL" in context
         assert "AAPL" not in context
+
+
+def test_build_context_filters_by_market_group() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        hk = Stock(market="HK", symbol="1810", name="Xiaomi")
+        cn = Stock(market="CN", symbol="159501", name="纳指ETF嘉实")
+        us = Stock(market="US", symbol="NVDA", name="NVIDIA")
+        session.add(hk)
+        session.add(cn)
+        session.add(us)
+        session.commit()
+        session.refresh(hk)
+        session.refresh(cn)
+        session.refresh(us)
+        session.add(MarketQuote(stock_id=hk.id or 0, price=10, source="test"))
+        session.add(MarketQuote(stock_id=cn.id or 0, price=2, source="test"))
+        session.add(MarketQuote(stock_id=us.id or 0, price=100, source="test"))
+        session.commit()
+
+        cn_hk_context = build_context(session, markets={"CN", "HK"})
+        us_context = build_context(session, markets={"US"})
+
+        assert "HK 1810 Xiaomi" in cn_hk_context
+        assert "CN 159501 纳指ETF嘉实" in cn_hk_context
+        assert "NVDA" not in cn_hk_context
+        assert "US NVDA NVIDIA" in us_context
+        assert "1810" not in us_context
+
+
+def test_build_context_prioritizes_new_information_since_cutoff() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="NVDA", name="NVIDIA")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        cutoff = datetime(2026, 6, 4, 10, 0, tzinfo=timezone.utc)
+        session.add(
+            MarketQuote(
+                stock_id=stock.id or 0,
+                price=100,
+                source="old-source",
+                observed_at=datetime(2026, 6, 4, 9, 30, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            MarketQuote(
+                stock_id=stock.id or 0,
+                price=110,
+                source="new-source",
+                observed_at=datetime(2026, 6, 4, 10, 30, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        context = build_context(session, new_since=cutoff)
+
+        assert "source=new-source" in context
+        assert "source=old-source" in context
+        assert context.index("source=new-source") < context.index("source=old-source")
 
 
 def test_collect_market_details_saves_institutional_flow() -> None:

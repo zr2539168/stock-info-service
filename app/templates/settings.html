@@ -15,12 +15,17 @@
     <label>PushDeer Endpoint</label>
     <input name="pushdeer_endpoint" value="{{ settings.pushdeer_endpoint }}" required>
     <label class="inline-check">
+      <input name="collection_enabled" type="checkbox" value="true" {% if settings.collection_enabled == "true" %}checked{% endif %}>
+      开启后台定时抓取信息
+    </label>
+    <p class="muted">服务启动后默认开启，每 1 小时抓取一次全部信息；关闭后仍可在任务页手动抓取。</p>
+    <label class="inline-check">
       <input name="market_open_briefs_enabled" type="checkbox" value="true" {% if settings.market_open_briefs_enabled == "true" %}checked{% endif %}>
       开启开盘后简报
     </label>
-    <label>开盘后简报时间（A 股/港股，北京时间） <span>每个工作日自动抓取全部信息、生成简报并推送</span></label>
+    <label>开盘后简报时间（A 股/港股，北京时间） <span>基于已抓取的 A 股/港股自选股信息生成并推送</span></label>
     <input name="cn_open_brief_time" type="time" value="{{ settings.cn_open_brief_time }}" required>
-    <label>开盘后简报时间（美股，纽约时间） <span>每个工作日自动抓取全部信息、生成简报并推送</span></label>
+    <label>开盘后简报时间（美股，纽约时间） <span>基于已抓取的美股自选股信息生成并推送</span></label>
     <input name="us_open_brief_time" type="time" value="{{ settings.us_open_brief_time }}" required>
     <button type="submit">保存配置</button>
   </form>

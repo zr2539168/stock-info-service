@@ -10,15 +10,9 @@ from app.config import settings
 from app.database import engine
 from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
 from app.services.market_calendar import is_market_trading_day
-from app.services.settings_service import get_market_open_brief_settings
+from app.services.settings_service import get_collection_settings, get_market_open_brief_settings
 from app.services.collector import (
     collect_all_information,
-    collect_announcements,
-    collect_brief_information,
-    collect_market_details,
-    collect_macro,
-    collect_news,
-    collect_quotes,
     finish_job,
     generate_daily_brief,
     push_pending_alert_events,
@@ -28,21 +22,7 @@ from app.services.collector import (
 
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=settings.timezone)
-    scheduler.add_job(_run_quotes_job, CronTrigger.from_crontab(settings.fetch_quotes_cron), id="quotes", replace_existing=True)
-    scheduler.add_job(
-        _run_market_details_job,
-        CronTrigger.from_crontab(settings.fetch_quotes_cron),
-        id="market_details",
-        replace_existing=True,
-    )
-    scheduler.add_job(_run_news_job, CronTrigger.from_crontab(settings.fetch_news_cron), id="news", replace_existing=True)
-    scheduler.add_job(
-        _run_announcements_job,
-        CronTrigger.from_crontab(settings.fetch_news_cron),
-        id="announcements",
-        replace_existing=True,
-    )
-    scheduler.add_job(_run_macro_job, CronTrigger.from_crontab(settings.fetch_macro_cron), id="macro", replace_existing=True)
+    configure_collection_job(scheduler, settings.collection_enabled, settings.collect_all_cron)
     configure_market_open_brief_jobs(
         scheduler,
         settings.market_open_briefs_enabled,
@@ -50,6 +30,19 @@ def build_scheduler() -> BackgroundScheduler:
         settings.us_open_brief_cron,
     )
     return scheduler
+
+
+def configure_collection_job(scheduler: BackgroundScheduler, enabled: bool, cron: str) -> None:
+    if scheduler.get_job("collect_all") is not None:
+        scheduler.remove_job("collect_all")
+    if not enabled:
+        return
+    scheduler.add_job(
+        _run_collect_all_job,
+        CronTrigger.from_crontab(cron),
+        id="collect_all",
+        replace_existing=True,
+    )
 
 
 def configure_market_open_brief_jobs(
@@ -77,78 +70,26 @@ def configure_market_open_brief_jobs(
     )
 
 
+def apply_collection_settings(scheduler: BackgroundScheduler) -> None:
+    with Session(engine) as session:
+        enabled, cron = get_collection_settings(session)
+    configure_collection_job(scheduler, enabled, cron)
+
+
 def apply_market_open_brief_settings(scheduler: BackgroundScheduler) -> None:
     with Session(engine) as session:
         enabled, cn_cron, us_cron = get_market_open_brief_settings(session)
     configure_market_open_brief_jobs(scheduler, enabled, cn_cron, us_cron)
 
 
-def _run_quotes_job() -> None:
+def _run_collect_all_job() -> None:
     with Session(engine) as session:
-        run, locked = _start_locked_job(session, "quotes")
+        run, locked = _start_locked_job(session, "collect_all")
         if not locked:
             return
         try:
-            asyncio.run(collect_quotes(session))
+            asyncio.run(collect_all_information(session))
             asyncio.run(push_pending_alert_events(session))
-            finish_job(session, run, "success")
-        except Exception as exc:
-            finish_job(session, run, "failed", str(exc))
-        finally:
-            release_collection_job_lock()
-
-
-def _run_market_details_job() -> None:
-    with Session(engine) as session:
-        run, locked = _start_locked_job(session, "market_details")
-        if not locked:
-            return
-        try:
-            asyncio.run(collect_market_details(session))
-            asyncio.run(push_pending_alert_events(session))
-            finish_job(session, run, "success")
-        except Exception as exc:
-            finish_job(session, run, "failed", str(exc))
-        finally:
-            release_collection_job_lock()
-
-
-def _run_news_job() -> None:
-    with Session(engine) as session:
-        run, locked = _start_locked_job(session, "news")
-        if not locked:
-            return
-        try:
-            asyncio.run(collect_news(session))
-            asyncio.run(push_pending_alert_events(session))
-            finish_job(session, run, "success")
-        except Exception as exc:
-            finish_job(session, run, "failed", str(exc))
-        finally:
-            release_collection_job_lock()
-
-
-def _run_announcements_job() -> None:
-    with Session(engine) as session:
-        run, locked = _start_locked_job(session, "announcements")
-        if not locked:
-            return
-        try:
-            asyncio.run(collect_announcements(session))
-            finish_job(session, run, "success")
-        except Exception as exc:
-            finish_job(session, run, "failed", str(exc))
-        finally:
-            release_collection_job_lock()
-
-
-def _run_macro_job() -> None:
-    with Session(engine) as session:
-        run, locked = _start_locked_job(session, "macro")
-        if not locked:
-            return
-        try:
-            asyncio.run(collect_macro(session))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
@@ -157,35 +98,29 @@ def _run_macro_job() -> None:
 
 
 def _run_cn_open_brief_job() -> None:
-    _run_market_open_brief_job("CN", "A股开盘半小时后")
+    _run_market_open_brief_job("CN", {"CN", "HK"}, "A股/港股盘中")
 
 
 def _run_us_open_brief_job() -> None:
-    _run_market_open_brief_job("US", "美股开盘半小时后")
+    _run_market_open_brief_job("US", {"US"}, "美股盘中")
 
 
-def _run_market_open_brief_job(market: str, label: str) -> None:
+def _run_market_open_brief_job(market: str, markets: set[str], label: str) -> None:
     with Session(engine) as session:
-        run, locked = _start_locked_job(session, f"{market.lower()}_open_brief")
-        if not locked:
-            return
+        run = start_job(session, f"{market.lower()}_open_brief")
         try:
             if not is_market_trading_day(market):
                 finish_job(session, run, "skipped", f"{market} market is closed")
                 return
-            asyncio.run(collect_brief_information(session))
-            asyncio.run(push_pending_alert_events(session))
-            asyncio.run(generate_daily_brief(session, push=True, scope_label=label))
+            asyncio.run(generate_daily_brief(session, push=True, scope_label=label, markets=markets))
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
-        finally:
-            release_collection_job_lock()
 
 
 def _start_locked_job(session: Session, name: str):
     run = start_job(session, name)
     if not acquire_collection_job_lock():
-        finish_job(session, run, "skipped", "Another collection or brief job is already running.")
+        finish_job(session, run, "skipped", "Another collection job is already running.")
         return run, False
     return run, True

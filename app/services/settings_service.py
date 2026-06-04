@@ -12,6 +12,8 @@ from app.schemas import RuntimeConfig
 MARKET_OPEN_BRIEFS_ENABLED_KEY = "market_open_briefs_enabled"
 CN_OPEN_BRIEF_CRON_KEY = "cn_open_brief_cron"
 US_OPEN_BRIEF_CRON_KEY = "us_open_brief_cron"
+COLLECTION_ENABLED_KEY = "collection_enabled"
+COLLECT_ALL_CRON_KEY = "collect_all_cron"
 
 SETTING_KEYS = {
     "deepseek_api_key": True,
@@ -19,6 +21,8 @@ SETTING_KEYS = {
     "deepseek_model": False,
     "pushdeer_pushkey": True,
     "pushdeer_endpoint": False,
+    COLLECTION_ENABLED_KEY: False,
+    COLLECT_ALL_CRON_KEY: False,
     MARKET_OPEN_BRIEFS_ENABLED_KEY: False,
     CN_OPEN_BRIEF_CRON_KEY: False,
     US_OPEN_BRIEF_CRON_KEY: False,
@@ -63,6 +67,14 @@ def get_market_open_brief_settings(session: Session) -> tuple[bool, str, str]:
     )
 
 
+def get_collection_settings(session: Session) -> tuple[bool, str]:
+    enabled = get_setting(session, COLLECTION_ENABLED_KEY, str(settings.collection_enabled))
+    return (
+        enabled.lower() in {"1", "true", "yes", "on"},
+        get_setting(session, COLLECT_ALL_CRON_KEY, settings.collect_all_cron),
+    )
+
+
 def workday_time_to_cron(value: str) -> str:
     stripped = value.strip()
     try:
@@ -96,6 +108,7 @@ def cron_to_workday_time(value: str) -> str:
 
 def all_settings(session: Session) -> dict[str, str]:
     cfg = get_runtime_config(session)
+    collection_enabled, collect_all_cron = get_collection_settings(session)
     market_open_enabled, cn_open_brief_cron, us_open_brief_cron = get_market_open_brief_settings(session)
     return {
         "deepseek_api_key": cfg.deepseek_api_key,
@@ -103,6 +116,8 @@ def all_settings(session: Session) -> dict[str, str]:
         "deepseek_model": cfg.deepseek_model,
         "pushdeer_pushkey": cfg.pushdeer_pushkey,
         "pushdeer_endpoint": cfg.pushdeer_endpoint,
+        "collection_enabled": "true" if collection_enabled else "false",
+        "collect_all_cron": collect_all_cron,
         "market_open_briefs_enabled": "true" if market_open_enabled else "false",
         "cn_open_brief_cron": cn_open_brief_cron,
         "cn_open_brief_time": cron_to_workday_time(cn_open_brief_cron),

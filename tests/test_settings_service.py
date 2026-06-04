@@ -5,6 +5,7 @@ import pytest
 
 from app.services.settings_service import (
     cron_to_workday_time,
+    get_collection_settings,
     get_market_open_brief_settings,
     get_runtime_config,
     set_setting,
@@ -41,6 +42,20 @@ def test_market_open_brief_settings_use_database_override() -> None:
         assert not enabled
         assert cn_cron == "30 9 * * 1-5"
         assert us_cron == "45 10 * * 1-5"
+
+
+def test_collection_settings_use_database_override() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        set_setting(session, "collection_enabled", "false")
+        set_setting(session, "collect_all_cron", "30 * * * *")
+
+        enabled, cron = get_collection_settings(session)
+
+        assert not enabled
+        assert cron == "30 * * * *"
 
 
 def test_workday_time_to_cron() -> None:

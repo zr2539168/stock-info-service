@@ -27,9 +27,8 @@ class EnvSettings:
     pushdeer_endpoint: str = env(
         "PUSHDEER_ENDPOINT", "https://api2.pushdeer.com/message/push"
     )
-    fetch_quotes_cron: str = env("FETCH_QUOTES_CRON", "*/5 * * * *")
-    fetch_news_cron: str = env("FETCH_NEWS_CRON", "*/30 * * * *")
-    fetch_macro_cron: str = env("FETCH_MACRO_CRON", "15 7 * * *")
+    collection_enabled: bool = env("COLLECTION_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    collect_all_cron: str = env("COLLECT_ALL_CRON", "0 * * * *")
     market_open_briefs_enabled: bool = env("MARKET_OPEN_BRIEFS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
     cn_open_brief_cron: str = env("CN_OPEN_BRIEF_CRON", "0 10 * * 1-5")
     us_open_brief_cron: str = env("US_OPEN_BRIEF_CRON", "0 10 * * 1-5")
