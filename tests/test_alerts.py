@@ -1,0 +1,21 @@
+from app.models import AlertRule, MarketQuote, NewsItem
+from app.services.alerts import should_trigger
+
+
+def test_price_alert_triggers() -> None:
+    rule = AlertRule(stock_id=1, rule_type="price_above", threshold=10)
+    quote = MarketQuote(stock_id=1, price=11)
+    assert should_trigger(rule, quote)
+
+
+def test_volume_alert_does_not_trigger_below_threshold() -> None:
+    rule = AlertRule(stock_id=1, rule_type="volume_above", threshold=1000)
+    quote = MarketQuote(stock_id=1, volume=999)
+    assert not should_trigger(rule, quote)
+
+
+def test_keyword_alert_matches_news() -> None:
+    rule = AlertRule(stock_id=1, rule_type="keyword", keyword="回购")
+    news = [NewsItem(stock_id=1, title="公司宣布回购计划", content_hash="a")]
+    assert should_trigger(rule, None, news)
+

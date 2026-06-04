@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head"><h1>自选股</h1></header>
+<section class="panel">
+  <form class="form-row" method="post" action="/watchlist">
+    <select name="market">
+      <option value="CN">A股</option>
+      <option value="US">美股</option>
+      <option value="HK">港股</option>
+    </select>
+    <input name="symbol" placeholder="代码，如 600519 / AAPL / 0700" required>
+    <input name="name" placeholder="名称">
+    <input name="tags" placeholder="标签">
+    <button type="submit">添加</button>
+  </form>
+  <table>
+    <thead><tr><th>市场</th><th>代码</th><th>名称</th><th>标签</th><th>状态</th><th></th></tr></thead>
+    <tbody>
+    {% for stock in stocks %}
+      <tr>
+        <td>{{ stock.market }}</td>
+        <td>{{ stock.symbol }}</td>
+        <td>{{ stock.name }}</td>
+        <td>{{ stock.tags }}</td>
+        <td>{{ "启用" if stock.active else "停用" }}</td>
+        <td class="actions">
+          <form method="post" action="/watchlist/{{ stock.id }}/toggle"><button type="submit">切换</button></form>
+          <form method="post" action="/watchlist/{{ stock.id }}/delete"><button class="ghost" type="submit">删除</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+

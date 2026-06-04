@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1>市场概览</h1>
+    <p>自选股、最新提醒、AI 简报和采集任务状态。</p>
+  </div>
+  <form method="post" action="/briefs/generate">
+    <button type="submit">生成今日简报</button>
+  </form>
+</header>
+
+<section class="grid three">
+  <div class="panel">
+    <h2>自选股</h2>
+    <table>
+      <thead><tr><th>代码</th><th>价格</th><th>涨跌幅</th></tr></thead>
+      <tbody>
+      {% for stock in stocks %}
+        {% set quote = latest_quotes.get(stock.id) %}
+        <tr>
+          <td>{{ stock.market }} {{ stock.symbol }}<span>{{ stock.name }}</span></td>
+          <td>{{ "%.3f"|format(quote.price) if quote and quote.price is not none else "-" }}</td>
+          <td class="{{ 'up' if quote and quote.change_percent and quote.change_percent > 0 else 'down' }}">{{ "%.2f%%"|format(quote.change_percent) if quote and quote.change_percent is not none else "-" }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel">
+    <h2>最新提醒</h2>
+    {% for event in events %}
+      <article class="item"><strong>{{ event.created_at.strftime("%Y-%m-%d %H:%M") }}</strong><p>{{ event.message }}</p></article>
+    {% else %}
+      <p class="muted">暂无触发提醒。</p>
+    {% endfor %}
+  </div>
+  <div class="panel">
+    <h2>任务状态</h2>
+    {% for job in jobs %}
+      <article class="item"><strong>{{ job.job_name }} · {{ job.status }}</strong><p>{{ job.started_at.strftime("%Y-%m-%d %H:%M") }}</p></article>
+    {% else %}
+      <p class="muted">暂无任务记录。</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel wide">
+  <h2>最新简报</h2>
+  {% for brief in briefs %}
+    <article class="brief">
+      <h3>{{ brief.title }}</h3>
+      <p>{{ brief.content }}</p>
+    </article>
+  {% else %}
+    <p class="muted">还没有简报，可以先添加自选股并手动生成。</p>
+  {% endfor %}
+</section>
+{% endblock %}
+

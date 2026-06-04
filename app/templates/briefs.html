@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>AI 简报</h1>
+  <form method="post" action="/briefs/generate">
+    <label><input type="checkbox" name="push" value="true"> 生成后推送</label>
+    <button type="submit">生成简报</button>
+  </form>
+</header>
+<section class="panel">
+  {% for brief in briefs %}
+    <article class="brief">
+      <h2>{{ brief.title }}</h2>
+      <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+      <p>{{ brief.content }}</p>
+    </article>
+  {% else %}
+    <p class="muted">暂无简报。</p>
+  {% endfor %}
+</section>
+{% endblock %}
+

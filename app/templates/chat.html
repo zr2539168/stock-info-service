@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>AI 对话</h1>
+  <form method="post" action="/chat/new"><button type="submit">新对话</button></form>
+</header>
+<section class="panel chat">
+  {% for message in messages %}
+    <article class="message {{ message.role }}">
+      <strong>{{ "你" if message.role == "user" else "AI" }}</strong>
+      <p>{{ message.content }}</p>
+    </article>
+  {% else %}
+    <p class="muted">可以询问“今天自选股有什么重点变化？”</p>
+  {% endfor %}
+  <form method="post" action="/chat" class="chat-form">
+    <textarea name="question" rows="3" placeholder="基于已采集信息提问..." required></textarea>
+    <button type="submit">发送</button>
+  </form>
+</section>
+{% endblock %}
+

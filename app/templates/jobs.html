@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <h1>采集任务</h1>
+  <div class="button-row">
+    <form method="post" action="/jobs/run/quotes"><button type="submit">抓行情</button></form>
+    <form method="post" action="/jobs/run/news"><button type="submit">抓新闻</button></form>
+    <form method="post" action="/jobs/run/macro"><button type="submit">抓宏观</button></form>
+    <form method="post" action="/jobs/run/brief"><button type="submit">生成简报</button></form>
+  </div>
+</header>
+<section class="panel">
+  <table>
+    <thead><tr><th>任务</th><th>状态</th><th>开始</th><th>结束</th><th>错误</th></tr></thead>
+    <tbody>
+    {% for job in jobs %}
+      <tr>
+        <td>{{ job.job_name }}</td>
+        <td>{{ job.status }}</td>
+        <td>{{ job.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td>{{ job.ended_at.strftime("%Y-%m-%d %H:%M") if job.ended_at else "-" }}</td>
+        <td>{{ job.error }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+

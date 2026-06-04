@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head"><h1>设置</h1></header>
+{% if message %}<div class="notice">{{ message }}</div>{% endif %}
+<section class="panel narrow">
+  <form method="post" action="/settings" class="settings-form">
+    <label>DeepSeek API Key <span>{{ settings.deepseek_api_key_masked or "未配置" }}</span></label>
+    <input name="deepseek_api_key" type="password" placeholder="留空表示不修改">
+    <label>DeepSeek Base URL</label>
+    <input name="deepseek_base_url" value="{{ settings.deepseek_base_url }}" required>
+    <label>DeepSeek Model</label>
+    <input name="deepseek_model" value="{{ settings.deepseek_model }}" required>
+    <label>PushDeer PushKey <span>{{ settings.pushdeer_pushkey_masked or "未配置" }}</span></label>
+    <input name="pushdeer_pushkey" type="password" placeholder="留空表示不修改">
+    <label>PushDeer Endpoint</label>
+    <input name="pushdeer_endpoint" value="{{ settings.pushdeer_endpoint }}" required>
+    <button type="submit">保存配置</button>
+  </form>
+  <div class="button-row">
+    <form method="post" action="/settings/test-deepseek"><button type="submit">测试 DeepSeek</button></form>
+    <form method="post" action="/settings/test-pushdeer"><button type="submit">测试 PushDeer</button></form>
+  </div>
+</section>
+{% endblock %}
+

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "Stock Info Service" }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/">Stock Info</a>
+    <nav>
+      <a href="/">概览</a>
+      <a href="/watchlist">自选股</a>
+      <a href="/briefs">简报</a>
+      <a href="/chat">AI 对话</a>
+      <a href="/alerts">监控</a>
+      <a href="/settings">设置</a>
+      <a href="/jobs">任务</a>
+    </nav>
+  </aside>
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
+

@@ -1,0 +1,29 @@
+[project]
+name = "stock-info-service"
+version = "0.1.0"
+description = "Local stock market information service with AI briefs and PushDeer alerts."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.16.0",
+    "apscheduler>=3.10.4",
+    "fastapi>=0.115.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.4",
+    "python-dotenv>=1.0.1",
+    "python-multipart>=0.0.9",
+    "sqlmodel>=0.0.22",
+    "uvicorn[standard]>=0.30.0",
+    "yfinance>=0.2.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "respx>=0.21.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+

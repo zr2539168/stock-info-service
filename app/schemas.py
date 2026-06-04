@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass
+class NormalizedQuote:
+    symbol: str
+    market: str
+    price: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    previous_close: float | None = None
+    change_percent: float | None = None
+    volume: float | None = None
+    source: str = ""
+
+
+@dataclass
+class NormalizedArticle:
+    title: str
+    source: str
+    url: str = ""
+    summary: str = ""
+    published_at: datetime | None = None
+    stock_symbol: str | None = None
+    stock_market: str | None = None
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    deepseek_api_key: str
+    deepseek_base_url: str
+    deepseek_model: str
+    pushdeer_pushkey: str
+    pushdeer_endpoint: str
+
