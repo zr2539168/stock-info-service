@@ -18,7 +18,7 @@ from app.models import (
     TradingData,
 )
 from app.schemas import NormalizedArticle, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
-from app.services.ai import DeepSeekClient, build_brief_prompt
+from app.services.ai import DeepSeekClient, build_brief_prompt, needs_chinese_translation
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
 from app.services.data_sources import MarketDataProvider, NewsProvider
@@ -73,6 +73,7 @@ async def collect_news(session: Session, provider: NewsProvider | None = None) -
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
     for stock in stocks:
         articles = await provider.fetch_stock_news(stock)
+        articles = await _translate_articles_to_chinese(session, articles)
         count += _save_articles(session, articles, NewsItem, stock_id=stock.id)
     evaluate_alerts(session)
     return count
@@ -84,6 +85,7 @@ async def collect_announcements(session: Session, provider: NewsProvider | None 
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
     for stock in stocks:
         articles = await provider.fetch_announcements(stock)
+        articles = await _translate_articles_to_chinese(session, articles)
         count += _save_articles(session, articles, Announcement, stock_id=stock.id)
     return count
 
@@ -91,6 +93,7 @@ async def collect_announcements(session: Session, provider: NewsProvider | None 
 async def collect_macro(session: Session, provider: NewsProvider | None = None) -> int:
     provider = provider or NewsProvider()
     articles = await provider.fetch_macro()
+    articles = await _translate_articles_to_chinese(session, articles)
     return _save_articles(session, articles, MacroEvent)
 
 
@@ -236,6 +239,26 @@ def _trading_to_model(stock_id: int, trading: NormalizedTradingData) -> TradingD
 
 def _order_book_to_model(stock_id: int, order_book: NormalizedOrderBook) -> OrderBookSnapshot:
     return OrderBookSnapshot(stock_id=stock_id, source=order_book.source, levels=order_book.levels)
+
+
+async def _translate_articles_to_chinese(session: Session, articles: list[NormalizedArticle]) -> list[NormalizedArticle]:
+    if not articles:
+        return articles
+    cfg = get_runtime_config(session)
+    if not cfg.deepseek_api_key:
+        return articles
+    client = DeepSeekClient(cfg)
+    translated_articles: list[NormalizedArticle] = []
+    for article in articles:
+        if not needs_chinese_translation(article.title, article.summary):
+            translated_articles.append(article)
+            continue
+        result = await client.translate_article_to_chinese(article.title, article.summary)
+        if result.ok:
+            article.title = result.title
+            article.summary = result.summary
+        translated_articles.append(article)
+    return translated_articles
 
 
 def _save_articles(

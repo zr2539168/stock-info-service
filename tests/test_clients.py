@@ -2,7 +2,7 @@ import respx
 from httpx import Response
 
 from app.schemas import RuntimeConfig
-from app.services.ai import DeepSeekClient
+from app.services.ai import DeepSeekClient, needs_chinese_translation
 from app.services.pushdeer import PushDeerClient
 
 
@@ -36,6 +36,46 @@ def test_deepseek_request_shape() -> None:
         assert "上下文" in payload
 
 
+async def _translation_call() -> tuple[str, str]:
+    result = await DeepSeekClient(config()).translate_article_to_chinese(
+        "Apple rises after earnings beat expectations",
+        "Shares climbed after stronger iPhone revenue.",
+    )
+    return result.title, result.summary
+
+
+def test_deepseek_translation_request_shape() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        route = router.post("https://deepseek.test/chat/completions").mock(
+            return_value=Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": '{"title":"苹果财报超预期后上涨","summary":"iPhone 收入强劲推动股价走高。"}'
+                            }
+                        }
+                    ]
+                },
+            )
+        )
+        import asyncio
+
+        title, summary = asyncio.run(_translation_call())
+
+        assert title == "苹果财报超预期后上涨"
+        assert summary == "iPhone 收入强劲推动股价走高。"
+        payload = route.calls[0].request.content.decode()
+        assert "Apple rises" in payload
+        assert "简体中文" in payload
+
+
+def test_translation_detection() -> None:
+    assert needs_chinese_translation("Apple rises after earnings beat expectations", "")
+    assert not needs_chinese_translation("苹果财报超预期后上涨", "")
+
+
 async def _push_call() -> str:
     result = await PushDeerClient(config()).push("标题", "正文")
     return result.message
@@ -52,4 +92,3 @@ def test_pushdeer_request_shape() -> None:
         body = route.calls[0].request.content.decode()
         assert "push-key" in body
         assert "title" not in body
-
