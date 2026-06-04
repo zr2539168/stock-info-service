@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from sqlmodel import Session, col, select
@@ -47,7 +48,7 @@ def latest_trading_snapshot(session: Session, stock_id: int) -> TradingData | No
     ).first()
 
 
-def collect_quotes(session: Session, provider: MarketDataProvider | None = None) -> int:
+async def collect_quotes(session: Session, provider: MarketDataProvider | None = None) -> int:
     provider = provider or MarketDataProvider()
     count = 0
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
@@ -58,11 +59,11 @@ def collect_quotes(session: Session, provider: MarketDataProvider | None = None)
         session.add(_quote_to_model(stock.id or 0, quote))
         count += 1
     session.commit()
-    evaluate_alerts(session)
+    await evaluate_alerts(session)
     return count
 
 
-def collect_market_details(session: Session, provider: MarketDataProvider | None = None) -> int:
+async def collect_market_details(session: Session, provider: MarketDataProvider | None = None) -> int:
     provider = provider or MarketDataProvider()
     count = 0
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
@@ -80,7 +81,7 @@ def collect_market_details(session: Session, provider: MarketDataProvider | None
             session.add(_institutional_to_model(stock.id or 0, institutional))
             count += 1
     session.commit()
-    evaluate_alerts(session)
+    await evaluate_alerts(session)
     return count
 
 
@@ -92,7 +93,7 @@ async def collect_news(session: Session, provider: NewsProvider | None = None) -
         articles = await provider.fetch_stock_news(stock)
         articles = await _translate_articles_to_chinese(session, articles)
         count += _save_articles(session, articles, NewsItem, stock_id=stock.id)
-    evaluate_alerts(session)
+    await evaluate_alerts(session)
     return count
 
 
@@ -116,8 +117,8 @@ async def collect_macro(session: Session, provider: NewsProvider | None = None) 
 
 async def collect_all_information(session: Session) -> dict[str, int]:
     return {
-        "quotes": collect_quotes(session),
-        "trading_order_book_institutional": collect_market_details(session),
+        "quotes": await collect_quotes(session),
+        "trading_order_book_institutional": await collect_market_details(session),
         "news": await collect_news(session),
         "announcements": await collect_announcements(session),
         "macro": await collect_macro(session),
@@ -255,7 +256,7 @@ def _matched_stock_ids(stocks: dict[int | None, Stock], query: str) -> list[int]
     return ids
 
 
-def evaluate_alerts(session: Session) -> list[AlertEvent]:
+async def evaluate_alerts(session: Session) -> list[AlertEvent]:
     events: list[AlertEvent] = []
     rules = session.exec(select(AlertRule).where(AlertRule.enabled == True)).all()  # noqa: E712
     for rule in rules:
@@ -266,8 +267,13 @@ def evaluate_alerts(session: Session) -> list[AlertEvent]:
             .order_by(col(NewsItem.created_at).desc())
             .limit(10)
         ).all()
-        if should_trigger(rule, quote, recent_news):
-            rule.last_triggered_at = datetime.now(timezone.utc)
+        if not should_trigger(rule, quote, recent_news):
+            continue
+        rule.last_triggered_at = datetime.now(timezone.utc)
+        if rule.rule_type == "ai_brief":
+            await generate_daily_brief(session, stock_id=rule.stock_id, push=True)
+            session.add(rule)
+        else:
             event = AlertEvent(rule_id=rule.id or 0, stock_id=rule.stock_id, message=alert_message(rule, quote))
             session.add(rule)
             session.add(event)

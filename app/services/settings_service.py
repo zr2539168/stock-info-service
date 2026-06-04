@@ -15,6 +15,7 @@ SETTING_KEYS = {
     "deepseek_model": False,
     "pushdeer_pushkey": True,
     "pushdeer_endpoint": False,
+    "brief_schedule_cron": False,
 }
 
 

@@ -84,7 +84,7 @@ def test_collect_quotes_triggers_alert() -> None:
         session.add(AlertRule(stock_id=stock.id or 0, rule_type="price_above", threshold=10, name="price"))
         session.commit()
 
-        count = collect_quotes(session, FakeProvider())
+        count = asyncio.run(collect_quotes(session, FakeProvider()))
         event = session.exec(select(AlertEvent)).first()
 
         assert count == 1
@@ -143,7 +143,7 @@ def test_collect_market_details_saves_institutional_flow() -> None:
         session.commit()
         session.refresh(stock)
 
-        count = collect_market_details(session, FakeDetailsProvider())
+        count = asyncio.run(collect_market_details(session, FakeDetailsProvider()))
         item = session.exec(select(InstitutionalFlow)).first()
         context = build_context(session)
 
@@ -165,7 +165,7 @@ def test_collect_market_details_can_trigger_volume_alert_from_trading_data() -> 
         session.add(AlertRule(stock_id=stock.id or 0, rule_type="volume_above", threshold=1000, name="volume"))
         session.commit()
 
-        collect_market_details(session, FakeTradingAlertProvider())
+        asyncio.run(collect_market_details(session, FakeTradingAlertProvider()))
         event = session.exec(select(AlertEvent)).first()
 
         assert event is not None

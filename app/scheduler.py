@@ -61,7 +61,7 @@ def _run_quotes_job() -> None:
     with Session(engine) as session:
         run = start_job(session, "quotes")
         try:
-            collect_quotes(session)
+            asyncio.run(collect_quotes(session))
             asyncio.run(push_pending_alert_events(session))
             finish_job(session, run, "success")
         except Exception as exc:
@@ -72,7 +72,7 @@ def _run_market_details_job() -> None:
     with Session(engine) as session:
         run = start_job(session, "market_details")
         try:
-            collect_market_details(session)
+            asyncio.run(collect_market_details(session))
             asyncio.run(push_pending_alert_events(session))
             finish_job(session, run, "success")
         except Exception as exc:

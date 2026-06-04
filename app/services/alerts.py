@@ -14,6 +14,8 @@ def should_trigger(rule: AlertRule, quote: MarketQuote | None, news: list[NewsIt
         return False
     if rule.last_triggered_at and datetime.now(timezone.utc) - rule.last_triggered_at < timedelta(minutes=rule.cooldown_minutes):
         return False
+    if rule.rule_type == "ai_brief":
+        return True
     if rule.rule_type == "price_above":
         return quote is not None and quote.price is not None and rule.threshold is not None and quote.price >= rule.threshold
     if rule.rule_type == "price_below":
@@ -43,6 +45,9 @@ def alert_message(rule: AlertRule, quote: MarketQuote | None) -> str:
             f"{_u(0x63D0, 0x9192)}{_u(0x300C)}{rule.name or rule.keyword}{_u(0x300D)}"
             f"{_u(0x89E6, 0x53D1, 0xFF1A, 0x5339, 0x914D, 0x5230, 0x5173, 0x952E, 0x8BCD)} {rule.keyword}{_u(0x3002)}"
         )
+    if rule.rule_type == "ai_brief":
+        name = rule.name or "AI\u7b80\u62a5\u63a8\u9001"
+        return f"{_u(0x63D0, 0x9192)}{_u(0x300C)}{name}{_u(0x300D)} AI\u7b80\u62a5\u5df2\u751f\u6210\u5e76\u63a8\u9001\u3002"
     return (
         f"{_u(0x63D0, 0x9192)}{_u(0x300C)}{rule.name or rule.rule_type}{_u(0x300D)}"
         f"{_u(0x89E6, 0x53D1, 0xFF1A, 0x5F53, 0x524D, 0x4EF7, 0x683C)} {price}"

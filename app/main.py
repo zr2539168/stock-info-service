@@ -44,7 +44,6 @@ from app.services.collector import (
     push_pending_alert_events,
 )
 from app.services.data_sources import StockIdentityProvider
-from app.services.nl_alerts import parse_natural_alert_with_ai
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import all_settings, get_runtime_config, set_setting
 
@@ -68,7 +67,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
-
 
 def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
@@ -325,38 +323,6 @@ def add_alert(
     return redirect("/alerts")
 
 
-@app.post("/alerts/natural")
-async def add_natural_alert(
-    description: str = Form(...),
-    cooldown_minutes: int = Form(30),
-    session: Session = Depends(get_session),
-):
-    stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
-    result = await parse_natural_alert_with_ai(
-        description,
-        stocks,
-        DeepSeekClient(get_runtime_config(session)),
-        cooldown_minutes,
-    )
-    if not result.ok or result.plan is None:
-        query = urlencode({"error": f"AI 未能解析该规则：{result.error}"})
-        return redirect(f"/alerts?{query}")
-    plan = result.plan
-    session.add(
-        AlertRule(
-            stock_id=plan.stock_id,
-            name=plan.name,
-            rule_type=plan.rule_type,
-            threshold=plan.threshold,
-            keyword=plan.keyword,
-            cooldown_minutes=plan.cooldown_minutes,
-        )
-    )
-    session.commit()
-    query = urlencode({"message": "AI 已根据自然语言描述添加监控规则。"})
-    return redirect(f"/alerts?{query}")
-
-
 @app.post("/alerts/{rule_id}/toggle")
 def toggle_alert(rule_id: int, session: Session = Depends(get_session)):
     rule = session.get(AlertRule, rule_id)
@@ -437,10 +403,10 @@ def jobs(request: Request, session: Session = Depends(get_session)):
 @app.post("/jobs/run/{job_name}")
 async def run_job(job_name: str, session: Session = Depends(get_session)):
     if job_name == "quotes":
-        collect_quotes(session)
+        await collect_quotes(session)
         await push_pending_alert_events(session)
     elif job_name == "details":
-        collect_market_details(session)
+        await collect_market_details(session)
         await push_pending_alert_events(session)
     elif job_name == "news":
         await collect_news(session)
