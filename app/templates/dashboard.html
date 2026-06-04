@@ -6,7 +6,7 @@
     <p>自选股、最新提醒、AI 简报和采集任务状态。</p>
   </div>
   <form method="post" action="/briefs/generate">
-    <button type="submit">生成今日简报</button>
+    <button type="submit">抓取并生成简报</button>
   </form>
 </header>
 
@@ -50,11 +50,10 @@
   {% for brief in briefs %}
     <article class="brief">
       <h3>{{ brief.title }}</h3>
-      <p>{{ brief.content }}</p>
+      <div class="markdown-body compact">{{ brief.content | markdown }}</div>
     </article>
   {% else %}
     <p class="muted">还没有简报，可以先添加自选股并手动生成。</p>
   {% endfor %}
 </section>
 {% endblock %}
-

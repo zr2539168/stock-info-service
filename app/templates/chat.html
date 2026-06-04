@@ -8,7 +8,7 @@
   {% for message in messages %}
     <article class="message {{ message.role }}">
       <strong>{{ "你" if message.role == "user" else "AI" }}</strong>
-      <p>{{ message.content }}</p>
+      <div class="markdown-body compact">{{ message.content | markdown }}</div>
     </article>
   {% else %}
     <p class="muted">可以询问“今天自选股有什么重点变化？”</p>
@@ -19,4 +19,3 @@
   </form>
 </section>
 {% endblock %}
-

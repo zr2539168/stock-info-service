@@ -11,6 +11,7 @@ from sqlmodel import Session, col, select
 
 from app.config import mask_secret, settings
 from app.database import get_session, init_db
+from app.markdown import render_markdown
 from app.models import (
     AlertEvent,
     AlertRule,
@@ -44,6 +45,7 @@ from app.services.settings_service import all_settings, get_runtime_config, set_
 
 
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["markdown"] = render_markdown
 scheduler = build_scheduler()
 stock_identity_provider = StockIdentityProvider()
 
