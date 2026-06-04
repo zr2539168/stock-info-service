@@ -30,8 +30,8 @@
         <input class="news-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
-          <p>{{ item.summary }}</p>
+          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.created_at | beijing_time }}</p>
+          <p class="clean-summary">{{ item.summary | clean_text }}</p>
           {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
         </div>
         <button class="ghost danger" type="submit" formaction="/info/news/{{ item.id }}/delete">删除</button>
@@ -56,8 +56,8 @@
         <input class="announcement-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ item.published_at.strftime("%Y-%m-%d") if item.published_at else item.created_at.strftime("%Y-%m-%d") }}</p>
-          <p>{{ item.summary }}</p>
+          <p>{{ stock_label(item.stock_id) }} · {{ item.source }} · {{ (item.published_at or item.created_at) | beijing_time("%Y-%m-%d") }}</p>
+          <p class="clean-summary">{{ item.summary | clean_text }}</p>
           {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开公告</a>{% endif %}
         </div>
         <button class="ghost danger" type="submit" formaction="/info/announcements/{{ item.id }}/delete">删除</button>
@@ -88,7 +88,7 @@
           <td>{{ item.change_percent }}</td>
           <td>{{ item.volume }}</td>
           <td>{{ item.source }}</td>
-          <td>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</td>
+          <td>{{ item.observed_at | beijing_time }}</td>
           <td><button class="ghost danger" type="submit" formaction="/info/quotes/{{ item.id }}/delete">删除</button></td>
         </tr>
       {% else %}
@@ -138,7 +138,7 @@
         <input class="order-book-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ stock_label(item.stock_id) }} · {{ item.source }}</strong>
-          <p>{{ item.observed_at.strftime("%Y-%m-%d %H:%M") }}</p>
+          <p>{{ item.observed_at | beijing_time }}</p>
           <pre>{{ item.levels }}</pre>
         </div>
         <button class="ghost danger" type="submit" formaction="/info/order_book/{{ item.id }}/delete">删除</button>
@@ -163,8 +163,8 @@
         <input class="macro-check record-check" type="checkbox" name="item_ids" value="{{ item.id }}">
         <div class="record-content">
           <strong>{{ item.title }}</strong>
-          <p>{{ item.source }} · {{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
-          <p>{{ item.summary }}</p>
+          <p>{{ item.source }} · {{ item.created_at | beijing_time }}</p>
+          <p class="clean-summary">{{ item.summary | clean_text }}</p>
           {% if item.url %}<a href="{{ item.url }}" target="_blank" rel="noreferrer">打开来源</a>{% endif %}
         </div>
         <button class="ghost danger" type="submit" formaction="/info/macro/{{ item.id }}/delete">删除</button>

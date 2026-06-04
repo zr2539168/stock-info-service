@@ -20,8 +20,8 @@
       <tr>
         <td>{{ job.job_name }}</td>
         <td>{{ job.status }}</td>
-        <td>{{ job.started_at.strftime("%Y-%m-%d %H:%M") }}</td>
-        <td>{{ job.ended_at.strftime("%Y-%m-%d %H:%M") if job.ended_at else "-" }}</td>
+        <td>{{ job.started_at | beijing_time }}</td>
+        <td>{{ job.ended_at | beijing_time if job.ended_at else "-" }}</td>
         <td>{{ job.error }}</td>
       </tr>
     {% endfor %}

@@ -30,7 +30,7 @@
   <div class="panel">
     <h2>最新提醒</h2>
     {% for event in events %}
-      <article class="item"><strong>{{ event.created_at.strftime("%Y-%m-%d %H:%M") }}</strong><p>{{ event.message }}</p></article>
+      <article class="item"><strong>{{ event.created_at | beijing_time }}</strong><p>{{ event.message }}</p></article>
     {% else %}
       <p class="muted">暂无触发提醒。</p>
     {% endfor %}
@@ -38,7 +38,7 @@
   <div class="panel">
     <h2>任务状态</h2>
     {% for job in jobs %}
-      <article class="item"><strong>{{ job.job_name }} · {{ job.status }}</strong><p>{{ job.started_at.strftime("%Y-%m-%d %H:%M") }}</p></article>
+      <article class="item"><strong>{{ job.job_name }} · {{ job.status }}</strong><p>{{ job.started_at | beijing_time }}</p></article>
     {% else %}
       <p class="muted">暂无任务记录。</p>
     {% endfor %}
@@ -50,7 +50,7 @@
   {% for brief in briefs %}
     <article class="brief">
       <h3>{{ brief.title }}</h3>
-      <div class="markdown-body compact">{{ brief.content | markdown }}</div>
+      <div class="markdown-body compact">{{ brief.content | stock_refs(stocks) | markdown }}</div>
     </article>
   {% else %}
     <p class="muted">还没有简报，可以先添加自选股并手动生成。</p>

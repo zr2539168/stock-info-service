@@ -12,6 +12,7 @@ from sqlmodel import Session, col, select
 from app.config import mask_secret, settings
 from app.database import get_session, init_db
 from app.markdown import render_markdown
+from app.presentation import clean_text, format_beijing_time, replace_stock_refs
 from app.models import (
     AlertEvent,
     AlertRule,
@@ -46,6 +47,9 @@ from app.services.settings_service import all_settings, get_runtime_config, set_
 
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["markdown"] = render_markdown
+templates.env.filters["beijing_time"] = format_beijing_time
+templates.env.filters["clean_text"] = clean_text
+templates.env.filters["stock_refs"] = replace_stock_refs
 scheduler = build_scheduler()
 stock_identity_provider = StockIdentityProvider()
 
@@ -174,7 +178,8 @@ def delete_stock(stock_id: int, session: Session = Depends(get_session)):
 @app.get("/briefs", response_class=HTMLResponse)
 def briefs(request: Request, session: Session = Depends(get_session)):
     items = session.exec(select(Brief).order_by(col(Brief.generated_at).desc()).limit(30)).all()
-    return templates.TemplateResponse(request, "briefs.html", {"briefs": items})
+    stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
+    return templates.TemplateResponse(request, "briefs.html", {"briefs": items, "stocks": stocks})
 
 
 @app.post("/briefs/generate")

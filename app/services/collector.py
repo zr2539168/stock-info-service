@@ -134,6 +134,7 @@ async def answer_question(session: Session, question: str) -> str:
 
 def build_context(session: Session, stock_id: int | None = None, query: str = "") -> str:
     pieces: list[str] = []
+    stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
     quote_stmt = select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(20)
     trading_stmt = select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(20)
     order_stmt = select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(10)
@@ -152,26 +153,34 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
 
     for quote in session.exec(quote_stmt).all():
         pieces.append(
-            f"[行情] stock_id={quote.stock_id} price={quote.price} pct={quote.change_percent} "
+            f"[行情] 股票={_stock_label(stocks, quote.stock_id)} price={quote.price} pct={quote.change_percent} "
             f"volume={quote.volume} source={quote.source} time={quote.observed_at}"
         )
     for trading in session.exec(trading_stmt).all():
         pieces.append(
-            f"[交易数据] stock_id={trading.stock_id} price={trading.price} pct={trading.change_percent} "
+            f"[交易数据] 股票={_stock_label(stocks, trading.stock_id)} price={trading.price} pct={trading.change_percent} "
             f"volume={trading.volume} turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
         )
     for order in session.exec(order_stmt).all():
         pieces.append(
-            f"[盘口] stock_id={order.stock_id} source={order.source} time={order.observed_at} "
+            f"[盘口] 股票={_stock_label(stocks, order.stock_id)} source={order.source} time={order.observed_at} "
             f"levels={compact_text(order.levels, 420)}"
         )
     for item in session.exec(news_stmt).all():
-        pieces.append(f"[新闻] stock_id={item.stock_id} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
+        pieces.append(f"[新闻] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     for item in session.exec(announcement_stmt).all():
-        pieces.append(f"[公告] stock_id={item.stock_id} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
+        pieces.append(f"[公告] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     for item in session.exec(macro_stmt).all():
         pieces.append(f"[宏观] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     return "\n".join(pieces) or "暂无本地采集资料。"
+
+
+def _stock_label(stocks: dict[int | None, Stock], stock_id: int | None) -> str:
+    stock = stocks.get(stock_id)
+    if stock is None:
+        return f"未知股票({stock_id})"
+    name = f" {stock.name}" if stock.name else ""
+    return f"{stock.market} {stock.symbol}{name}"
 
 
 def evaluate_alerts(session: Session) -> list[AlertEvent]:

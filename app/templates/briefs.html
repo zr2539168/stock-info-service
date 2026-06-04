@@ -21,9 +21,9 @@
       <div class="record-content">
         <div class="record-head">
           <h2>{{ brief.title }}</h2>
-          <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+          <time>{{ brief.generated_at | beijing_time }}</time>
         </div>
-        <div class="markdown-body">{{ brief.content | markdown }}</div>
+        <div class="markdown-body">{{ brief.content | stock_refs(stocks) | markdown }}</div>
       </div>
     </article>
   {% else %}

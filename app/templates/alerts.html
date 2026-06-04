@@ -66,7 +66,7 @@
 <section class="panel">
   <h2>触发记录</h2>
   {% for event in events %}
-    <article class="item"><strong>{{ event.created_at.strftime("%Y-%m-%d %H:%M") }}</strong><p>{{ event.message }}</p></article>
+    <article class="item"><strong>{{ event.created_at | beijing_time }}</strong><p>{{ event.message }}</p></article>
   {% else %}
     <p class="muted">暂无触发记录。</p>
   {% endfor %}

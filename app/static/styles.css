@@ -64,7 +64,7 @@ nav a:hover {
 .content {
   margin-left: 220px;
   padding: 36px;
-  max-width: 1580px;
+  max-width: none;
 }
 
 .page-head {
@@ -285,7 +285,7 @@ textarea {
 }
 
 .brief-list {
-  max-width: 1080px;
+  max-width: 1480px;
 }
 
 .brief {
@@ -348,7 +348,7 @@ pre {
 .markdown-body {
   line-height: 1.65;
   color: var(--ink);
-  max-width: 940px;
+  max-width: 1280px;
 }
 
 .markdown-body h1,
@@ -405,6 +405,12 @@ pre {
   border-collapse: collapse;
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.clean-summary {
+  max-width: 1280px;
+  line-height: 1.65;
+  word-break: break-word;
 }
 
 .markdown-body thead {
