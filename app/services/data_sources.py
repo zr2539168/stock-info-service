@@ -97,9 +97,11 @@ class StockIdentityProvider:
         if not symbol:
             return None
         if market == "CN":
-            stock = self._resolve_akshare_cn(symbol)
-            if stock:
-                return stock
+            if not symbol.isdigit() or len(symbol) != 6:
+                return None
+            return self._resolve_akshare_cn(symbol)
+        if market == "HK" and not symbol.isdigit():
+            return None
         return self._resolve_yfinance(market, symbol)
 
     def _resolve_akshare_cn(self, symbol: str) -> ResolvedStock | None:

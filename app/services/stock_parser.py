@@ -6,13 +6,16 @@ def normalize_market(market: str) -> str:
     aliases = {
         "A": "CN",
         "ASHARE": "CN",
-        "A股": "CN",
         "CN": "CN",
         "US": "US",
-        "美股": "US",
         "HK": "HK",
-        "港股": "HK",
     }
+    if market == "A股":
+        return "CN"
+    if market == "美股":
+        return "US"
+    if market == "港股":
+        return "HK"
     return aliases.get(value, value or "CN")
 
 
@@ -20,7 +23,10 @@ def normalize_symbol(symbol: str, market: str) -> str:
     raw = (symbol or "").strip().upper()
     normalized_market = normalize_market(market)
     if normalized_market == "HK":
-        return raw.zfill(4) if raw.isdigit() and len(raw) < 4 else raw
+        if raw.isdigit():
+            stripped = raw.lstrip("0") or "0"
+            return stripped.zfill(4) if len(stripped) < 4 else stripped
+        return raw
     return raw
 
 
@@ -33,4 +39,3 @@ def to_yfinance_symbol(symbol: str, market: str) -> str:
         suffix = ".SS" if symbol.startswith(("6", "9")) else ".SZ"
         return f"{symbol}{suffix}"
     return symbol
-

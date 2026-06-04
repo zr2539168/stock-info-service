@@ -25,6 +25,13 @@ def test_resolve_cn_stock_uses_akshare_name(monkeypatch) -> None:
     assert resolved.name == "贵州茅台"
 
 
+def test_resolve_cn_rejects_non_numeric_symbol_without_yfinance_fallback(monkeypatch) -> None:
+    fake_yfinance = SimpleNamespace(Ticker=lambda symbol: (_ for _ in ()).throw(AssertionError("should not call yfinance")))
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    assert StockIdentityProvider().resolve("CN", "QQQ") is None
+
+
 def test_resolve_cn_stock_returns_none_for_unknown_code(monkeypatch) -> None:
     fake_akshare = SimpleNamespace(stock_zh_a_spot_em=lambda: pd.DataFrame([{"代码": "600519", "名称": "贵州茅台"}]))
     fake_yfinance = SimpleNamespace(Ticker=lambda symbol: (_ for _ in ()).throw(RuntimeError("not found")))
@@ -32,6 +39,26 @@ def test_resolve_cn_stock_returns_none_for_unknown_code(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
 
     assert StockIdentityProvider().resolve("CN", "999999") is None
+
+
+def test_resolve_hk_stock_normalizes_01810_to_yfinance_symbol(monkeypatch) -> None:
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            self.symbol = symbol
+
+        def get_info(self) -> dict[str, str]:
+            assert self.symbol == "1810.HK"
+            return {"longName": "Xiaomi Corporation"}
+
+    fake_yfinance = SimpleNamespace(Ticker=FakeTicker)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    resolved = StockIdentityProvider().resolve("HK", "01810")
+
+    assert resolved is not None
+    assert resolved.market == "HK"
+    assert resolved.symbol == "1810"
+    assert resolved.name == "Xiaomi Corporation"
 
 
 def test_resolve_us_stock_uses_yfinance_name(monkeypatch) -> None:
@@ -52,4 +79,3 @@ def test_resolve_us_stock_uses_yfinance_name(monkeypatch) -> None:
     assert resolved.market == "US"
     assert resolved.symbol == "AAPL"
     assert resolved.name == "Apple Inc."
-

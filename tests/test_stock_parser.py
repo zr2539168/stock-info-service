@@ -12,7 +12,11 @@ def test_hk_symbol_padding() -> None:
     assert to_yfinance_symbol("700", "HK") == "0700.HK"
 
 
+def test_hk_symbol_strips_mainland_style_leading_zero() -> None:
+    assert normalize_symbol("01810", "HK") == "1810"
+    assert to_yfinance_symbol("01810", "HK") == "1810.HK"
+
+
 def test_cn_yfinance_suffix() -> None:
     assert to_yfinance_symbol("600519", "CN") == "600519.SS"
     assert to_yfinance_symbol("000001", "CN") == "000001.SZ"
-
