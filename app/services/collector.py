@@ -11,6 +11,7 @@ from app.models import (
     Brief,
     FetchJobRun,
     HistoricalPrice,
+    InstitutionalFlow,
     MacroEvent,
     MarketQuote,
     NewsItem,
@@ -18,7 +19,7 @@ from app.models import (
     Stock,
     TradingData,
 )
-from app.schemas import NormalizedArticle, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
+from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
 from app.services.ai import DeepSeekClient, build_brief_prompt, needs_chinese_translation
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
@@ -65,6 +66,10 @@ def collect_market_details(session: Session, provider: MarketDataProvider | None
         if order_book:
             session.add(_order_book_to_model(stock.id or 0, order_book))
             count += 1
+        institutional = provider.fetch_institutional_flow(stock.market, stock.symbol)
+        if institutional:
+            session.add(_institutional_to_model(stock.id or 0, institutional))
+            count += 1
     session.commit()
     return count
 
@@ -102,7 +107,7 @@ async def collect_macro(session: Session, provider: NewsProvider | None = None) 
 async def collect_all_information(session: Session) -> dict[str, int]:
     return {
         "quotes": collect_quotes(session),
-        "trading_and_order_book": collect_market_details(session),
+        "trading_order_book_institutional": collect_market_details(session),
         "news": await collect_news(session),
         "announcements": await collect_announcements(session),
         "macro": await collect_macro(session),
@@ -154,6 +159,7 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
     history_stmt = select(HistoricalPrice).order_by(col(HistoricalPrice.trade_date).desc()).limit(80)
     trading_stmt = select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(20)
     order_stmt = select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(10)
+    institutional_stmt = select(InstitutionalFlow).order_by(col(InstitutionalFlow.observed_at).desc()).limit(20)
     news_stmt = select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(20)
     announcement_stmt = select(Announcement).order_by(col(Announcement.created_at).desc()).limit(20)
     macro_stmt = select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(10)
@@ -162,6 +168,7 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         history_stmt = history_stmt.where(HistoricalPrice.stock_id == stock_id)
         trading_stmt = trading_stmt.where(TradingData.stock_id == stock_id)
         order_stmt = order_stmt.where(OrderBookSnapshot.stock_id == stock_id)
+        institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id == stock_id)
         news_stmt = news_stmt.where(NewsItem.stock_id == stock_id)
         announcement_stmt = announcement_stmt.where(Announcement.stock_id == stock_id)
     elif query_stock_ids:
@@ -169,6 +176,7 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         history_stmt = history_stmt.where(HistoricalPrice.stock_id.in_(query_stock_ids))
         trading_stmt = trading_stmt.where(TradingData.stock_id.in_(query_stock_ids))
         order_stmt = order_stmt.where(OrderBookSnapshot.stock_id.in_(query_stock_ids))
+        institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id.in_(query_stock_ids))
         news_stmt = news_stmt.where(NewsItem.stock_id.in_(query_stock_ids))
         announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(query_stock_ids))
     if query:
@@ -195,6 +203,14 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         pieces.append(
             f"[盘口] 股票={_stock_label(stocks, order.stock_id)} source={order.source} time={order.observed_at} "
             f"levels={compact_text(order.levels, 420)}"
+        )
+    for flow in session.exec(institutional_stmt).all():
+        pieces.append(
+            f"[机构成本/暗池代理] 股票={_stock_label(stocks, flow.stock_id)} "
+            f"vwap_proxy={flow.vwap_proxy} cost_band={flow.cost_low}-{flow.cost_high} "
+            f"dark_pool_volume={flow.dark_pool_volume} off_exchange_volume={flow.off_exchange_volume} "
+            f"sample_days={flow.sample_days} source={flow.source} time={flow.observed_at} "
+            f"raw={compact_text(flow.raw_data, 360)}"
         )
     for item in session.exec(news_stmt).all():
         pieces.append(f"[新闻] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
@@ -289,6 +305,20 @@ def _trading_to_model(stock_id: int, trading: NormalizedTradingData) -> TradingD
 
 def _order_book_to_model(stock_id: int, order_book: NormalizedOrderBook) -> OrderBookSnapshot:
     return OrderBookSnapshot(stock_id=stock_id, source=order_book.source, levels=order_book.levels)
+
+
+def _institutional_to_model(stock_id: int, flow: NormalizedInstitutionalFlow) -> InstitutionalFlow:
+    return InstitutionalFlow(
+        stock_id=stock_id,
+        source=flow.source,
+        vwap_proxy=flow.vwap_proxy,
+        cost_low=flow.cost_low,
+        cost_high=flow.cost_high,
+        dark_pool_volume=flow.dark_pool_volume,
+        off_exchange_volume=flow.off_exchange_volume,
+        sample_days=flow.sample_days,
+        raw_data=flow.raw_data,
+    )
 
 
 async def _translate_articles_to_chinese(session: Session, articles: list[NormalizedArticle]) -> list[NormalizedArticle]:

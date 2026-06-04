@@ -22,6 +22,7 @@ from app.models import (
     ChatSession,
     FetchJobRun,
     HistoricalPrice,
+    InstitutionalFlow,
     MacroEvent,
     MarketQuote,
     NewsItem,
@@ -81,6 +82,7 @@ INFO_MODELS = {
     "history": HistoricalPrice,
     "trading": TradingData,
     "order_book": OrderBookSnapshot,
+    "institutional": InstitutionalFlow,
     "news": NewsItem,
     "announcements": Announcement,
     "macro": MacroEvent,
@@ -211,6 +213,9 @@ def info_library(request: Request, session: Session = Depends(get_session)):
         "trading": session.exec(select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(100)).all(),
         "order_book": session.exec(
             select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(100)
+        ).all(),
+        "institutional": session.exec(
+            select(InstitutionalFlow).order_by(col(InstitutionalFlow.observed_at).desc()).limit(100)
         ).all(),
         "news": session.exec(select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(100)).all(),
         "announcements": session.exec(select(Announcement).order_by(col(Announcement.created_at).desc()).limit(100)).all(),

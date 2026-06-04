@@ -52,6 +52,20 @@ class NormalizedOrderBook:
 
 
 @dataclass
+class NormalizedInstitutionalFlow:
+    symbol: str
+    market: str
+    source: str
+    vwap_proxy: float | None = None
+    cost_low: float | None = None
+    cost_high: float | None = None
+    dark_pool_volume: float | None = None
+    off_exchange_volume: float | None = None
+    sample_days: int = 0
+    raw_data: str = ""
+
+
+@dataclass
 class ResolvedStock:
     market: str
     symbol: str

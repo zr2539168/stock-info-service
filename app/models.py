@@ -68,6 +68,20 @@ class OrderBookSnapshot(SQLModel, table=True):
     observed_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class InstitutionalFlow(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stock_id: int = Field(index=True, foreign_key="stock.id")
+    source: str = Field(default="", max_length=128)
+    vwap_proxy: Optional[float] = None
+    cost_low: Optional[float] = None
+    cost_high: Optional[float] = None
+    dark_pool_volume: Optional[float] = None
+    off_exchange_volume: Optional[float] = None
+    sample_days: int = Field(default=0)
+    raw_data: str = Field(default="")
+    observed_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class NewsItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: Optional[int] = Field(default=None, index=True, foreign_key="stock.id")

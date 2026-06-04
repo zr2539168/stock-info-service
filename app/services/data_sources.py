@@ -11,6 +11,7 @@ from app.models import Stock
 from app.schemas import (
     NormalizedArticle,
     NormalizedHistoricalPrice,
+    NormalizedInstitutionalFlow,
     NormalizedOrderBook,
     NormalizedQuote,
     NormalizedTradingData,
@@ -213,6 +214,57 @@ class MarketDataProvider:
             )
         except Exception:
             return None
+
+    def fetch_institutional_flow(self, market: str, symbol: str) -> NormalizedInstitutionalFlow | None:
+        market = normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
+        history = self.fetch_historical_prices(market, symbol, "1mo")
+        cost = _institutional_cost_proxy(history)
+        finra = self._fetch_finra_dark_pool_summary(symbol) if market == "US" else {}
+        if not cost and not finra:
+            return None
+        raw = {
+            "note": (
+                "Cost values are volume-weighted proxy estimates from public OHLCV data. "
+                "FINRA ATS/OTC data is delayed aggregate transparency data, not execution-level institution cost."
+            ),
+            "cost_proxy": cost,
+            "finra": finra,
+        }
+        return NormalizedInstitutionalFlow(
+            symbol=symbol,
+            market=market,
+            source="FINRA ATS/OTC + VWAP proxy" if finra else "VWAP proxy",
+            vwap_proxy=cost.get("vwap_proxy"),
+            cost_low=cost.get("cost_low"),
+            cost_high=cost.get("cost_high"),
+            dark_pool_volume=finra.get("ats_volume"),
+            off_exchange_volume=finra.get("non_ats_volume"),
+            sample_days=int(cost.get("sample_days") or 0),
+            raw_data=json.dumps(raw, ensure_ascii=False, default=str),
+        )
+
+    def _fetch_finra_dark_pool_summary(self, symbol: str) -> dict[str, float | str]:
+        payload = {
+            "compareFilters": [{"compareType": "EQUAL", "fieldName": "issueSymbolIdentifier", "fieldValue": symbol}],
+            "limit": 100,
+            "sortFields": ["-weekStartDate"],
+        }
+        headers = {"User-Agent": "stock-info-service/0.1", "Accept": "application/json"}
+        try:
+            response = httpx.post(
+                "https://api.finra.org/data/group/otcMarket/name/weeklySummary",
+                json=payload,
+                headers=headers,
+                timeout=12.0,
+            )
+            response.raise_for_status()
+            rows = response.json()
+            if not isinstance(rows, list):
+                return {}
+            return _summarize_finra_rows(rows)
+        except Exception:
+            return {}
 
     def _fetch_yfinance_quote(self, market: str, symbol: str) -> NormalizedQuote | None:
         try:
@@ -522,6 +574,72 @@ def _quote_from_dataframe(frame: object, symbol: str, source: str) -> Normalized
         volume=_float_or_none(_row_get(item, COL_VOLUME)),
         source=source,
     )
+
+
+def _institutional_cost_proxy(history: list[NormalizedHistoricalPrice]) -> dict[str, float | int]:
+    weighted: list[tuple[float, float]] = []
+    for item in history:
+        price = item.close
+        volume = item.volume
+        if price is None or volume is None or volume <= 0:
+            continue
+        weighted.append((price, volume))
+    if not weighted:
+        return {}
+
+    total_volume = sum(volume for _, volume in weighted)
+    vwap = sum(price * volume for price, volume in weighted) / total_volume
+    variance = sum(volume * ((price - vwap) ** 2) for price, volume in weighted) / total_volume
+    weighted_std = variance ** 0.5
+    return {
+        "vwap_proxy": round(vwap, 4),
+        "cost_low": round(max(0, vwap - weighted_std), 4),
+        "cost_high": round(vwap + weighted_std, 4),
+        "sample_days": len(weighted),
+    }
+
+
+def _summarize_finra_rows(rows: list[object]) -> dict[str, float | str]:
+    ats_volume = 0.0
+    non_ats_volume = 0.0
+    latest_week = ""
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        latest_week = latest_week or str(
+            item.get("weekStartDate")
+            or item.get("week_start_date")
+            or item.get("summaryStartDate")
+            or item.get("date")
+            or ""
+        )
+        volume = _float_or_none(
+            item.get("totalWeeklyShareQuantity")
+            or item.get("weeklyShareQuantity")
+            or item.get("shareQuantity")
+            or item.get("volume")
+        )
+        if volume is None:
+            continue
+        venue_type = str(
+            item.get("summaryType")
+            or item.get("tradeReportType")
+            or item.get("tierIdentifier")
+            or item.get("marketParticipantName")
+            or ""
+        ).lower()
+        if "non" in venue_type and "ats" in venue_type:
+            non_ats_volume += volume
+        else:
+            ats_volume += volume
+    result: dict[str, float | str] = {}
+    if ats_volume:
+        result["ats_volume"] = ats_volume
+    if non_ats_volume:
+        result["non_ats_volume"] = non_ats_volume
+    if latest_week:
+        result["latest_week"] = latest_week
+    return result
 
 
 def _find_symbol_row(frame: object, symbol: str):
