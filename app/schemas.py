@@ -19,6 +19,14 @@ class NormalizedQuote:
 
 
 @dataclass
+class ResolvedStock:
+    market: str
+    symbol: str
+    name: str
+    source: str
+
+
+@dataclass
 class NormalizedArticle:
     title: str
     source: str
@@ -36,4 +44,3 @@ class RuntimeConfig:
     deepseek_model: str
     pushdeer_pushkey: str
     pushdeer_endpoint: str
-

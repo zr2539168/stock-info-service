@@ -1,0 +1,55 @@
+import sys
+from types import SimpleNamespace
+
+import pandas as pd
+
+from app.services.data_sources import StockIdentityProvider
+
+
+def test_resolve_cn_stock_uses_akshare_name(monkeypatch) -> None:
+    fake_akshare = SimpleNamespace(
+        stock_zh_a_spot_em=lambda: pd.DataFrame(
+            [
+                {"代码": "600519", "名称": "贵州茅台"},
+                {"代码": "000001", "名称": "平安银行"},
+            ]
+        )
+    )
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare)
+
+    resolved = StockIdentityProvider().resolve("A股", "600519")
+
+    assert resolved is not None
+    assert resolved.market == "CN"
+    assert resolved.symbol == "600519"
+    assert resolved.name == "贵州茅台"
+
+
+def test_resolve_cn_stock_returns_none_for_unknown_code(monkeypatch) -> None:
+    fake_akshare = SimpleNamespace(stock_zh_a_spot_em=lambda: pd.DataFrame([{"代码": "600519", "名称": "贵州茅台"}]))
+    fake_yfinance = SimpleNamespace(Ticker=lambda symbol: (_ for _ in ()).throw(RuntimeError("not found")))
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    assert StockIdentityProvider().resolve("CN", "999999") is None
+
+
+def test_resolve_us_stock_uses_yfinance_name(monkeypatch) -> None:
+    class FakeTicker:
+        def __init__(self, symbol: str) -> None:
+            self.symbol = symbol
+
+        def get_info(self) -> dict[str, str]:
+            assert self.symbol == "AAPL"
+            return {"longName": "Apple Inc."}
+
+    fake_yfinance = SimpleNamespace(Ticker=FakeTicker)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+    resolved = StockIdentityProvider().resolve("US", "aapl")
+
+    assert resolved is not None
+    assert resolved.market == "US"
+    assert resolved.symbol == "AAPL"
+    assert resolved.name == "Apple Inc."
+

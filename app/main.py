@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -14,13 +15,14 @@ from app.models import AlertEvent, AlertRule, Brief, ChatMessage, ChatSession, F
 from app.scheduler import build_scheduler
 from app.services.ai import DeepSeekClient
 from app.services.collector import answer_question, collect_macro, collect_news, collect_quotes, generate_daily_brief
+from app.services.data_sources import StockIdentityProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import all_settings, get_runtime_config, set_setting
-from app.services.stock_parser import normalize_market, normalize_symbol
 
 
 templates = Jinja2Templates(directory="app/templates")
 scheduler = build_scheduler()
+stock_identity_provider = StockIdentityProvider()
 
 
 @asynccontextmanager
@@ -37,6 +39,10 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
+
+
+def watchlist_redirect(message: str, level: str = "info") -> RedirectResponse:
+    return redirect(f"/watchlist?{urlencode({'level': level, 'message': message})}")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -70,7 +76,15 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
 @app.get("/watchlist", response_class=HTMLResponse)
 def watchlist(request: Request, session: Session = Depends(get_session)):
     stocks = session.exec(select(Stock).order_by(Stock.market, Stock.symbol)).all()
-    return templates.TemplateResponse(request, "watchlist.html", {"stocks": stocks})
+    return templates.TemplateResponse(
+        request,
+        "watchlist.html",
+        {
+            "stocks": stocks,
+            "message": request.query_params.get("message", ""),
+            "message_level": request.query_params.get("level", "info"),
+        },
+    )
 
 
 @app.post("/watchlist")
@@ -81,20 +95,26 @@ def add_stock(
     tags: str = Form(""),
     session: Session = Depends(get_session),
 ):
-    normalized_market = normalize_market(market)
-    normalized_symbol = normalize_symbol(symbol, normalized_market)
+    resolved = stock_identity_provider.resolve(market, symbol)
+    if resolved is None:
+        return watchlist_redirect("未能识别该股票代码，请检查市场和代码是否正确，或稍后再试", "error")
+    normalized_market = resolved.market
+    normalized_symbol = resolved.symbol
+    resolved_name = name.strip() or resolved.name
     existing = session.exec(
         select(Stock).where(Stock.market == normalized_market, Stock.symbol == normalized_symbol)
     ).first()
     if existing:
-        existing.name = name or existing.name
+        existing.name = resolved_name
         existing.tags = tags
         existing.active = True
         session.add(existing)
+        message = f"已更新 {normalized_market} {normalized_symbol} {resolved_name}"
     else:
-        session.add(Stock(market=normalized_market, symbol=normalized_symbol, name=name, tags=tags))
+        session.add(Stock(market=normalized_market, symbol=normalized_symbol, name=resolved_name, tags=tags))
+        message = f"已添加 {normalized_market} {normalized_symbol} {resolved_name}"
     session.commit()
-    return redirect("/watchlist")
+    return watchlist_redirect(message, "success")
 
 
 @app.post("/watchlist/{stock_id}/toggle")

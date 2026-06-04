@@ -221,6 +221,18 @@ textarea {
   margin-bottom: 16px;
 }
 
+.notice.error {
+  background: #fff4f2;
+  border-color: #f4b8ae;
+  color: #912018;
+}
+
+.notice.success {
+  background: #ecfdf3;
+  border-color: #abefc6;
+  color: #067647;
+}
+
 .up {
   color: var(--red);
 }
@@ -254,4 +266,3 @@ textarea {
     flex-direction: column;
   }
 }
-

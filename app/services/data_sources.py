@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 import httpx
 
-from app.schemas import NormalizedArticle, NormalizedQuote
+from app.schemas import NormalizedArticle, NormalizedQuote, ResolvedStock
 from app.services.stock_parser import normalize_market, normalize_symbol, to_yfinance_symbol
 
 
@@ -90,6 +90,59 @@ class MarketDataProvider:
             return None
 
 
+class StockIdentityProvider:
+    def resolve(self, market: str, symbol: str) -> ResolvedStock | None:
+        market = normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
+        if not symbol:
+            return None
+        if market == "CN":
+            stock = self._resolve_akshare_cn(symbol)
+            if stock:
+                return stock
+        return self._resolve_yfinance(market, symbol)
+
+    def _resolve_akshare_cn(self, symbol: str) -> ResolvedStock | None:
+        try:
+            import akshare as ak  # type: ignore
+
+            spot = ak.stock_zh_a_spot_em()
+            row = spot[spot["代码"] == symbol]
+            if row.empty:
+                return None
+            item = row.iloc[0]
+            name = str(item.get("名称") or "").strip()
+            if not name:
+                return None
+            return ResolvedStock(market="CN", symbol=symbol, name=name, source="AKShare")
+        except Exception:
+            return None
+
+    def _resolve_yfinance(self, market: str, symbol: str) -> ResolvedStock | None:
+        try:
+            import yfinance as yf  # type: ignore
+
+            yf_symbol = to_yfinance_symbol(symbol, market)
+            ticker = yf.Ticker(yf_symbol)
+            try:
+                info = ticker.get_info()
+            except AttributeError:
+                info = ticker.info
+            name = (
+                info.get("longName")
+                or info.get("shortName")
+                or info.get("displayName")
+                or info.get("symbol")
+                or ""
+            )
+            name = str(name).strip()
+            if not name:
+                return None
+            return ResolvedStock(market=market, symbol=normalize_symbol(symbol, market), name=name, source="yfinance")
+        except Exception:
+            return None
+
+
 class NewsProvider:
     def __init__(self, timeout: float = 12.0) -> None:
         self.timeout = timeout
@@ -163,4 +216,3 @@ def _float_or_none(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
