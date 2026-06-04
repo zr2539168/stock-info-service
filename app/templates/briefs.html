@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <header class="page-head">
-  <h1>AI 简报</h1>
-  <form method="post" action="/briefs/generate">
-    <label><input type="checkbox" name="push" value="true"> 生成后推送</label>
+  <div>
+    <h1>AI 简报</h1>
+    <p>基于信息库中已抓取的自选股资料生成结构化摘要。</p>
+  </div>
+  <form class="page-actions" method="post" action="/briefs/generate">
+    <label class="inline-check"><input type="checkbox" name="push" value="true"> 生成后推送</label>
     <button type="submit">抓取并生成简报</button>
   </form>
 </header>
-<section class="panel">
+<section class="panel brief-list">
   {% for brief in briefs %}
     <article class="brief">
-      <h2>{{ brief.title }}</h2>
-      <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+      <div class="record-head">
+        <h2>{{ brief.title }}</h2>
+        <time>{{ brief.generated_at.strftime("%Y-%m-%d %H:%M") }}</time>
+      </div>
       <div class="markdown-body">{{ brief.content | markdown }}</div>
     </article>
   {% else %}

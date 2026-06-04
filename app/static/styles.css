@@ -1,14 +1,16 @@
 :root {
   color-scheme: light;
-  --bg: #f6f7f9;
+  --bg: #f4f6f8;
   --panel: #ffffff;
-  --ink: #1e242c;
-  --muted: #6d7785;
-  --line: #dfe4ea;
+  --ink: #17202b;
+  --muted: #667085;
+  --line: #d8dee7;
   --accent: #157f74;
   --accent-dark: #0e5f57;
+  --accent-soft: #e8f5f2;
   --red: #b42318;
   --green: #067647;
+  --shadow: 0 12px 32px rgba(16, 24, 40, 0.06);
 }
 
 * {
@@ -27,7 +29,7 @@ body {
   position: fixed;
   inset: 0 auto 0 0;
   width: 220px;
-  background: #18202a;
+  background: #151d29;
   color: white;
   padding: 22px 16px;
 }
@@ -38,7 +40,8 @@ body {
   font-size: 20px;
   font-weight: 700;
   text-decoration: none;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  letter-spacing: 0;
 }
 
 nav {
@@ -50,7 +53,7 @@ nav a {
   color: #d8dee7;
   text-decoration: none;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: 7px;
 }
 
 nav a:hover {
@@ -60,19 +63,31 @@ nav a:hover {
 
 .content {
   margin-left: 220px;
-  padding: 28px;
+  padding: 36px;
+  max-width: 1580px;
 }
 
 .page-head {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  gap: 20px;
+  margin-bottom: 24px;
 }
 
 h1, h2, h3, p {
   margin-top: 0;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.2;
+  margin-bottom: 8px;
+}
+
+h2 {
+  font-size: 21px;
+  line-height: 1.25;
 }
 
 .page-head p,
@@ -94,8 +109,9 @@ time {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 18px;
-  margin-bottom: 18px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
 }
 
 .panel.wide {
@@ -112,10 +128,16 @@ table {
 }
 
 th, td {
-  padding: 10px 8px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
+}
+
+th {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 td span {
@@ -128,8 +150,8 @@ button {
   border: 0;
   background: var(--accent);
   color: white;
-  border-radius: 6px;
-  padding: 9px 13px;
+  border-radius: 7px;
+  padding: 10px 14px;
   cursor: pointer;
   font-weight: 600;
 }
@@ -146,10 +168,18 @@ button.ghost {
 input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 9px 10px;
+  border-radius: 7px;
+  padding: 10px 11px;
   font: inherit;
   background: white;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(21, 127, 116, 0.12);
+  outline: none;
 }
 
 textarea {
@@ -186,12 +216,57 @@ textarea {
   flex-wrap: wrap;
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #344054;
+  white-space: nowrap;
+}
+
+.inline-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+
 .item,
 .brief,
 .message,
 .info-item {
   border-bottom: 1px solid var(--line);
   padding: 10px 0;
+}
+
+.brief-list {
+  max-width: 1080px;
+}
+
+.brief {
+  padding: 18px 0;
+}
+
+.brief:first-child {
+  padding-top: 4px;
+}
+
+.record-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+  margin-bottom: 12px;
 }
 
 .info-item {
@@ -220,6 +295,7 @@ pre {
 .markdown-body {
   line-height: 1.65;
   color: var(--ink);
+  max-width: 940px;
 }
 
 .markdown-body h1,
@@ -305,6 +381,48 @@ pre {
   margin-top: 16px;
 }
 
+.alert-form {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.1fr) minmax(220px, 1fr) minmax(190px, 0.9fr);
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 22px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field span {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.compact-field {
+  max-width: 160px;
+}
+
+.form-submit {
+  display: flex;
+  align-items: end;
+}
+
+.form-submit button {
+  min-width: 128px;
+}
+
+.data-table {
+  margin-top: 4px;
+}
+
+.empty-cell {
+  color: var(--muted);
+  padding: 18px 8px;
+  text-align: center;
+}
+
 .notice {
   background: #eef8f6;
   border: 1px solid #b8dfd8;
@@ -350,11 +468,22 @@ pre {
   }
 
   .grid.three,
-  .form-row {
+  .form-row,
+  .alert-form {
     grid-template-columns: 1fr;
   }
 
   .page-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .record-head {
     align-items: flex-start;
     flex-direction: column;
   }
