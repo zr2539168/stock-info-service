@@ -35,24 +35,20 @@ class MarketDataProvider:
     def _fetch_akshare_cn_quote(self, symbol: str) -> NormalizedQuote | None:
         try:
             import akshare as ak  # type: ignore
+        except Exception:
+            return None
 
+        try:
             spot = ak.stock_zh_a_spot_em()
-            row = spot[spot["代码"] == symbol]
-            if row.empty:
-                return None
-            item = row.iloc[0]
-            return NormalizedQuote(
-                symbol=symbol,
-                market="CN",
-                price=_float_or_none(item.get("最新价")),
-                open=_float_or_none(item.get("今开")),
-                high=_float_or_none(item.get("最高")),
-                low=_float_or_none(item.get("最低")),
-                previous_close=_float_or_none(item.get("昨收")),
-                change_percent=_float_or_none(item.get("涨跌幅")),
-                volume=_float_or_none(item.get("成交量")),
-                source="AKShare",
-            )
+            quote = _quote_from_dataframe(spot, symbol, "AKShare A股")
+            if quote:
+                return quote
+        except Exception:
+            pass
+
+        try:
+            etf_spot = ak.fund_etf_spot_em()
+            return _quote_from_dataframe(etf_spot, symbol, "AKShare ETF")
         except Exception:
             return None
 
@@ -99,7 +95,7 @@ class StockIdentityProvider:
         if market == "CN":
             if not symbol.isdigit() or len(symbol) != 6:
                 return None
-            return self._resolve_akshare_cn(symbol)
+            return self._resolve_akshare_cn(symbol) or self._resolve_akshare_cn_etf(symbol)
         if market == "HK" and not symbol.isdigit():
             return None
         return self._resolve_yfinance(market, symbol)
@@ -117,6 +113,22 @@ class StockIdentityProvider:
             if not name:
                 return None
             return ResolvedStock(market="CN", symbol=symbol, name=name, source="AKShare")
+        except Exception:
+            return None
+
+    def _resolve_akshare_cn_etf(self, symbol: str) -> ResolvedStock | None:
+        try:
+            import akshare as ak  # type: ignore
+
+            spot = ak.fund_etf_spot_em()
+            row = spot[spot["代码"] == symbol]
+            if row.empty:
+                return None
+            item = row.iloc[0]
+            name = str(item.get("名称") or "").strip()
+            if not name:
+                return None
+            return ResolvedStock(market="CN", symbol=symbol, name=name, source="AKShare ETF")
         except Exception:
             return None
 
@@ -209,6 +221,25 @@ def _first_text(item: ElementTree.Element, names: list[str]) -> str:
         if child is not None and child.text:
             return child.text
     return ""
+
+
+def _quote_from_dataframe(frame: object, symbol: str, source: str) -> NormalizedQuote | None:
+    row = frame[frame["代码"] == symbol]
+    if row.empty:
+        return None
+    item = row.iloc[0]
+    return NormalizedQuote(
+        symbol=symbol,
+        market="CN",
+        price=_float_or_none(item.get("最新价")),
+        open=_float_or_none(item.get("今开") or item.get("开盘价")),
+        high=_float_or_none(item.get("最高") or item.get("最高价")),
+        low=_float_or_none(item.get("最低") or item.get("最低价")),
+        previous_close=_float_or_none(item.get("昨收")),
+        change_percent=_float_or_none(item.get("涨跌幅")),
+        volume=_float_or_none(item.get("成交量")),
+        source=source,
+    )
 
 
 def _float_or_none(value: object) -> float | None:

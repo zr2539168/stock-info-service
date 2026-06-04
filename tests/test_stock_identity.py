@@ -41,6 +41,21 @@ def test_resolve_cn_stock_returns_none_for_unknown_code(monkeypatch) -> None:
     assert StockIdentityProvider().resolve("CN", "999999") is None
 
 
+def test_resolve_cn_etf_uses_akshare_etf_name(monkeypatch) -> None:
+    fake_akshare = SimpleNamespace(
+        stock_zh_a_spot_em=lambda: pd.DataFrame([{"代码": "600519", "名称": "贵州茅台"}]),
+        fund_etf_spot_em=lambda: pd.DataFrame([{"代码": "159501", "名称": "纳指ETF嘉实"}]),
+    )
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare)
+
+    resolved = StockIdentityProvider().resolve("CN", "159501")
+
+    assert resolved is not None
+    assert resolved.market == "CN"
+    assert resolved.symbol == "159501"
+    assert resolved.name == "纳指ETF嘉实"
+
+
 def test_resolve_hk_stock_normalizes_01810_to_yfinance_symbol(monkeypatch) -> None:
     class FakeTicker:
         def __init__(self, symbol: str) -> None:
