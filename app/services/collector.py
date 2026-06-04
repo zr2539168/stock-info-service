@@ -21,6 +21,7 @@ from app.models import (
     TradingData,
 )
 from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
+from app.presentation import format_beijing_time
 from app.services.ai import DeepSeekClient, build_brief_prompt, needs_chinese_translation
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
@@ -125,6 +126,15 @@ async def collect_all_information(session: Session) -> dict[str, int]:
     }
 
 
+async def collect_brief_information(session: Session) -> dict[str, int]:
+    return {
+        "quotes": await collect_quotes(session),
+        "news": await collect_news(session),
+        "announcements": await collect_announcements(session),
+        "macro": await collect_macro(session),
+    }
+
+
 async def generate_daily_brief(
     session: Session,
     stock_id: int | None = None,
@@ -136,13 +146,17 @@ async def generate_daily_brief(
     ai = DeepSeekClient(cfg)
     scope = scope_label or ("自选股" if stock_id is None else "个股")
     result = await ai.complete(build_brief_prompt(scope), context)
-    title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
-    brief = Brief(stock_id=stock_id, title=title, content=result.content, sources=context)
+    generated_at = datetime.now(timezone.utc)
+    generated_time = format_beijing_time(generated_at)
+    base_title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
+    title = f"{base_title}（北京时间 {generated_time}）"
+    content = f"生成时间：北京时间 {generated_time}\n\n{result.content}"
+    brief = Brief(stock_id=stock_id, title=title, content=content, sources=context, generated_at=generated_at)
     session.add(brief)
     session.commit()
     session.refresh(brief)
     if push:
-        await PushDeerClient(cfg).push(title, result.content)
+        await PushDeerClient(cfg).push(title, content)
     return brief
 
 
@@ -270,6 +284,8 @@ async def evaluate_alerts(session: Session) -> list[AlertEvent]:
         if not should_trigger(rule, quote, recent_news):
             continue
         rule.last_triggered_at = datetime.now(timezone.utc)
+        if rule.push_mode == "once":
+            rule.enabled = False
         if rule.rule_type == "ai_brief":
             await generate_daily_brief(session, stock_id=rule.stock_id, push=True)
             session.add(rule)

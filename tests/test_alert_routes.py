@@ -37,3 +37,45 @@ def test_delete_alert_rule_route_removes_rule() -> None:
 
     assert response.status_code == 303
     assert remaining == []
+
+
+def test_add_alert_rule_saves_push_mode() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        stock_id = stock.id
+
+    def override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/alerts",
+                data={
+                    "stock_id": stock_id,
+                    "name": "target",
+                    "rule_type": "price_above",
+                    "threshold": "400",
+                    "keyword": "",
+                    "push_mode": "once",
+                    "cooldown_minutes": "15",
+                },
+                follow_redirects=False,
+            )
+        with Session(engine) as session:
+            rule = session.exec(select(AlertRule)).first()
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 303
+    assert rule is not None
+    assert rule.push_mode == "once"
+    assert rule.cooldown_minutes == 30

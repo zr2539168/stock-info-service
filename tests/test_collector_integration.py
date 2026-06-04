@@ -4,7 +4,14 @@ from datetime import datetime, timezone
 
 from app.models import AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, Stock
 from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
-from app.services.collector import build_context, collect_market_details, collect_quotes, push_pending_alert_events
+from app.services.ai import AiResult
+from app.services.collector import (
+    build_context,
+    collect_market_details,
+    collect_quotes,
+    generate_daily_brief,
+    push_pending_alert_events,
+)
 
 import asyncio
 
@@ -72,6 +79,14 @@ class FakePushClient:
         return PushResult(True, "ok")
 
 
+class FakeDeepSeekClient:
+    def __init__(self, config) -> None:
+        self.config = config
+
+    async def complete(self, user_prompt: str, context: str = "") -> AiResult:
+        return AiResult(True, "简报正文")
+
+
 def test_collect_quotes_triggers_alert() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
@@ -90,6 +105,77 @@ def test_collect_quotes_triggers_alert() -> None:
         assert count == 1
         assert event is not None
         assert "当前价格" in event.message
+
+
+def test_generate_daily_brief_includes_beijing_time(monkeypatch) -> None:
+    import app.services.collector as collector
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 4, 0, 5, tzinfo=timezone.utc)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(collector, "datetime", FixedDatetime)
+    monkeypatch.setattr(collector, "DeepSeekClient", FakeDeepSeekClient)
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        brief = asyncio.run(generate_daily_brief(session))
+
+        assert "北京时间 2026-06-04 08:05" in brief.title
+        assert brief.content.startswith("生成时间：北京时间 2026-06-04 08:05")
+
+
+def test_one_time_alert_disables_after_trigger() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="AAPL", name="Apple")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        rule = AlertRule(
+            stock_id=stock.id or 0,
+            rule_type="price_above",
+            threshold=10,
+            name="one shot",
+            push_mode="once",
+        )
+        session.add(rule)
+        session.commit()
+        session.refresh(rule)
+
+        asyncio.run(collect_quotes(session, FakeProvider()))
+        updated_rule = session.get(AlertRule, rule.id)
+        events = session.exec(select(AlertEvent)).all()
+
+        assert updated_rule is not None
+        assert not updated_rule.enabled
+        assert len(events) == 1
+
+
+def test_cooldown_alert_stays_enabled_after_trigger() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="AAPL", name="Apple")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        rule = AlertRule(stock_id=stock.id or 0, rule_type="price_above", threshold=10, name="loop")
+        session.add(rule)
+        session.commit()
+        session.refresh(rule)
+
+        asyncio.run(collect_quotes(session, FakeProvider()))
+        updated_rule = session.get(AlertRule, rule.id)
+
+        assert updated_rule is not None
+        assert updated_rule.enabled
 
 
 def test_build_context_uses_stock_name_not_raw_stock_id() -> None:

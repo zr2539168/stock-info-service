@@ -147,6 +147,7 @@ class AlertRule(SQLModel, table=True):
     rule_type: str = Field(max_length=32)
     threshold: Optional[float] = None
     keyword: str = Field(default="", max_length=255)
+    push_mode: str = Field(default="cooldown", max_length=32)
     enabled: bool = Field(default=True)
     cooldown_minutes: int = Field(default=30)
     last_triggered_at: Optional[datetime] = Field(default=None, index=True)

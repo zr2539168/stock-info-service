@@ -92,3 +92,16 @@ def test_pushdeer_request_shape() -> None:
         body = route.calls[0].request.content.decode()
         assert "push-key" in body
         assert "title" not in body
+
+
+def test_pushdeer_nonzero_code_is_failure() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        router.post("https://pushdeer.test/message/push").mock(
+            return_value=Response(200, json={"code": 80501, "error": "The pushkey field is required."})
+        )
+        import asyncio
+
+        message = asyncio.run(_push_call())
+
+        assert "PushDeer 推送失败" in message
+        assert "80501" in message

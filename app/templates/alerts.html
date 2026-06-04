@@ -61,16 +61,23 @@
       <span>&#x5173;&#x952E;&#x8BCD;</span>
       <input name="keyword" placeholder="&#x516C;&#x544A;&#x6216;&#x65B0;&#x95FB;&#x5173;&#x952E;&#x8BCD;">
     </label>
-    <label class="field compact-field">
+    <label class="field compact-field" data-cooldown-field>
       <span>&#x51B7;&#x5374;&#x5206;&#x949F;</span>
       <input name="cooldown_minutes" type="number" value="30" min="1">
+    </label>
+    <label class="field">
+      <span>&#x63A8;&#x9001;&#x65B9;&#x5F0F;</span>
+      <select name="push_mode" data-push-mode-select>
+        <option value="cooldown">&#x51B7;&#x5374;&#x5FAA;&#x73AF;&#x63A8;&#x9001;</option>
+        <option value="once">&#x4E00;&#x6B21;&#x6027;&#x63A8;&#x9001;</option>
+      </select>
     </label>
     <div class="form-submit">
       <button type="submit">&#x6DFB;&#x52A0;&#x89C4;&#x5219;</button>
     </div>
   </form>
   <table class="data-table">
-    <thead><tr><th>&#x76D1;&#x63A7;&#x80A1;&#x7968;</th><th>&#x89C4;&#x5219;</th><th>&#x7C7B;&#x578B;</th><th>&#x9608;&#x503C;/&#x5173;&#x952E;&#x8BCD;</th><th>&#x72B6;&#x6001;</th><th></th></tr></thead>
+    <thead><tr><th>&#x76D1;&#x63A7;&#x80A1;&#x7968;</th><th>&#x89C4;&#x5219;</th><th>&#x7C7B;&#x578B;</th><th>&#x9608;&#x503C;/&#x5173;&#x952E;&#x8BCD;</th><th>&#x63A8;&#x9001;&#x65B9;&#x5F0F;</th><th>&#x72B6;&#x6001;</th><th></th></tr></thead>
     <tbody>
     {% for rule in rules %}
       <tr>
@@ -78,6 +85,13 @@
         <td>{{ rule.name or "-" }}</td>
         <td>{{ rule_label(rule.rule_type) }}</td>
         <td>{{ rule.threshold or rule.keyword or "-" }}</td>
+        <td>
+          {% if rule.push_mode == "once" %}
+            &#x4E00;&#x6B21;&#x6027;
+          {% else %}
+            &#x51B7;&#x5374;&#x5FAA;&#x73AF; / {{ rule.cooldown_minutes }} &#x5206;&#x949F;
+          {% endif %}
+        </td>
         <td>{% if rule.enabled %}&#x542F;&#x7528;{% else %}&#x505C;&#x7528;{% endif %}</td>
         <td>
           <div class="table-actions">
@@ -87,7 +101,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="empty-cell">&#x6682;&#x65E0;&#x89C4;&#x5219;&#x3002;</td></tr>
+      <tr><td colspan="7" class="empty-cell">&#x6682;&#x65E0;&#x89C4;&#x5219;&#x3002;</td></tr>
     {% endfor %}
     </tbody>
   </table>

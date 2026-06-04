@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlmodel import Session, SQLModel, create_engine
+from sqlalchemy import inspect, text
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.config import settings
 
@@ -25,6 +27,34 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _migrate_alert_rule_push_mode()
+    _mark_interrupted_jobs()
+
+
+def _migrate_alert_rule_push_mode() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    if "alertrule" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("alertrule")}
+    if "push_mode" in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE alertrule ADD COLUMN push_mode VARCHAR(32) NOT NULL DEFAULT 'cooldown'"))
+
+
+def _mark_interrupted_jobs() -> None:
+    from app.models import FetchJobRun
+
+    with Session(engine) as session:
+        jobs = session.exec(select(FetchJobRun).where(FetchJobRun.status == "running")).all()
+        for job in jobs:
+            job.status = "failed"
+            job.ended_at = datetime.now(timezone.utc)
+            job.error = job.error or "Service restarted before this job completed."
+            session.add(job)
+        session.commit()
 
 
 def get_session() -> Session:

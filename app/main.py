@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
+from threading import Thread
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, Request
@@ -10,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, select
 
 from app.config import mask_secret, settings
-from app.database import get_session, init_db
+from app.database import engine, get_session, init_db
 from app.markdown import render_markdown
 from app.presentation import clean_text, format_beijing_time, replace_stock_refs
 from app.models import (
@@ -30,22 +32,26 @@ from app.models import (
     Stock,
     TradingData,
 )
-from app.scheduler import build_scheduler
+from app.scheduler import apply_market_open_brief_settings, build_scheduler, configure_market_open_brief_jobs
 from app.services.ai import DeepSeekClient
 from app.services.collector import (
     answer_question,
     collect_all_information,
+    collect_brief_information,
     collect_announcements,
     collect_macro,
     collect_market_details,
     collect_news,
     collect_quotes,
+    finish_job,
     generate_daily_brief,
     push_pending_alert_events,
+    start_job,
 )
 from app.services.data_sources import StockIdentityProvider
 from app.services.pushdeer import PushDeerClient
-from app.services.settings_service import all_settings, get_runtime_config, set_setting
+from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
+from app.services.settings_service import all_settings, get_runtime_config, set_setting, workday_time_to_cron
 
 
 templates = Jinja2Templates(directory="app/templates")
@@ -60,6 +66,7 @@ stock_identity_provider = StockIdentityProvider()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    apply_market_open_brief_settings(scheduler)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
@@ -187,9 +194,20 @@ def briefs(request: Request, session: Session = Depends(get_session)):
 
 
 @app.post("/briefs/generate")
-async def generate_brief(push: bool = Form(False), session: Session = Depends(get_session)):
-    await collect_all_information(session)
-    await generate_daily_brief(session, push=push)
+async def generate_brief(request: Request, push: bool = Form(False), session: Session = Depends(get_session)):
+    async def action(job_session: Session) -> None:
+        await collect_brief_information(job_session)
+        await generate_daily_brief(job_session, push=push)
+
+    if is_progress_request(request):
+        run = start_background_job("manual_brief", action)
+        return {"job_id": run.id, "redirect_url": "/briefs"}
+
+    async def inline_action() -> None:
+        await collect_brief_information(session)
+        await generate_daily_brief(session, push=push)
+
+    await run_tracked_job(session, "manual_brief", inline_action)
     return redirect("/briefs")
 
 
@@ -306,9 +324,12 @@ def add_alert(
     rule_type: str = Form(...),
     threshold: float | None = Form(None),
     keyword: str = Form(""),
+    push_mode: str = Form("cooldown"),
     cooldown_minutes: int = Form(30),
     session: Session = Depends(get_session),
 ):
+    normalized_push_mode = push_mode if push_mode in {"cooldown", "once"} else "cooldown"
+    normalized_cooldown_minutes = cooldown_minutes if normalized_push_mode == "cooldown" else 30
     session.add(
         AlertRule(
             stock_id=stock_id,
@@ -316,7 +337,8 @@ def add_alert(
             rule_type=rule_type,
             threshold=threshold,
             keyword=keyword,
-            cooldown_minutes=cooldown_minutes,
+            push_mode=normalized_push_mode,
+            cooldown_minutes=normalized_cooldown_minutes,
         )
     )
     session.commit()
@@ -354,13 +376,28 @@ def settings_page(request: Request, session: Session = Depends(get_session)):
 
 @app.post("/settings")
 def save_settings(
+    request: Request,
     deepseek_api_key: str = Form(""),
     deepseek_base_url: str = Form(...),
     deepseek_model: str = Form(...),
     pushdeer_pushkey: str = Form(""),
     pushdeer_endpoint: str = Form(...),
+    market_open_briefs_enabled: bool = Form(False),
+    cn_open_brief_time: str = Form(...),
+    us_open_brief_time: str = Form(...),
     session: Session = Depends(get_session),
 ):
+    try:
+        cn_open_brief_cron = workday_time_to_cron(cn_open_brief_time)
+        us_open_brief_cron = workday_time_to_cron(us_open_brief_time)
+    except ValueError as exc:
+        values = all_settings(session)
+        values |= {
+            "deepseek_api_key_masked": mask_secret(values["deepseek_api_key"]),
+            "pushdeer_pushkey_masked": mask_secret(values["pushdeer_pushkey"]),
+        }
+        return templates.TemplateResponse(request, "settings.html", {"settings": values, "message": str(exc)})
+
     if deepseek_api_key.strip():
         set_setting(session, "deepseek_api_key", deepseek_api_key.strip())
     set_setting(session, "deepseek_base_url", deepseek_base_url.strip())
@@ -368,6 +405,15 @@ def save_settings(
     if pushdeer_pushkey.strip():
         set_setting(session, "pushdeer_pushkey", pushdeer_pushkey.strip())
     set_setting(session, "pushdeer_endpoint", pushdeer_endpoint.strip())
+    set_setting(session, "market_open_briefs_enabled", "true" if market_open_briefs_enabled else "false")
+    set_setting(session, "cn_open_brief_cron", cn_open_brief_cron)
+    set_setting(session, "us_open_brief_cron", us_open_brief_cron)
+    configure_market_open_brief_jobs(
+        scheduler,
+        market_open_briefs_enabled,
+        cn_open_brief_cron,
+        us_open_brief_cron,
+    )
     return redirect("/settings")
 
 
@@ -400,26 +446,132 @@ def jobs(request: Request, session: Session = Depends(get_session)):
     return templates.TemplateResponse(request, "jobs.html", {"jobs": items})
 
 
+@app.get("/jobs/current")
+def current_jobs(job_id: int | None = None, session: Session = Depends(get_session)):
+    if job_id is not None:
+        job = session.get(FetchJobRun, job_id)
+        return {
+            "job": _job_payload(job) if job is not None else None,
+            "running": [_job_payload(job)] if job is not None and job.status == "running" else [],
+            "latest": _job_payload(job) if job is not None else None,
+        }
+    running = session.exec(
+        select(FetchJobRun).where(FetchJobRun.status == "running").order_by(col(FetchJobRun.started_at).desc()).limit(5)
+    ).all()
+    latest = session.exec(select(FetchJobRun).order_by(col(FetchJobRun.started_at).desc()).limit(1)).first()
+    return {
+        "running": [_job_payload(item) for item in running],
+        "latest": _job_payload(latest) if latest is not None else None,
+    }
+
+
 @app.post("/jobs/run/{job_name}")
-async def run_job(job_name: str, session: Session = Depends(get_session)):
-    if job_name == "quotes":
-        await collect_quotes(session)
-        await push_pending_alert_events(session)
-    elif job_name == "details":
-        await collect_market_details(session)
-        await push_pending_alert_events(session)
-    elif job_name == "news":
-        await collect_news(session)
-        await push_pending_alert_events(session)
-    elif job_name == "announcements":
-        await collect_announcements(session)
-    elif job_name == "macro":
-        await collect_macro(session)
-    elif job_name == "all":
-        await collect_all_information(session)
-        await push_pending_alert_events(session)
-    elif job_name == "brief":
-        await collect_all_information(session)
-        await push_pending_alert_events(session)
-        await generate_daily_brief(session, push=False)
+async def run_job(job_name: str, request: Request, session: Session = Depends(get_session)):
+    async def action(job_session: Session) -> None:
+        if job_name == "quotes":
+            await collect_quotes(job_session)
+            await push_pending_alert_events(job_session)
+        elif job_name == "details":
+            await collect_market_details(job_session)
+            await push_pending_alert_events(job_session)
+        elif job_name == "news":
+            await collect_news(job_session)
+            await push_pending_alert_events(job_session)
+        elif job_name == "announcements":
+            await collect_announcements(job_session)
+        elif job_name == "macro":
+            await collect_macro(job_session)
+        elif job_name == "all":
+            await collect_all_information(job_session)
+            await push_pending_alert_events(job_session)
+        elif job_name == "brief":
+            await collect_brief_information(job_session)
+            await push_pending_alert_events(job_session)
+            await generate_daily_brief(job_session, push=False)
+
+    if job_name in {"quotes", "details", "news", "announcements", "macro", "all", "brief"}:
+        tracked_name = f"manual_{job_name}"
+        if is_progress_request(request):
+            run = start_background_job(tracked_name, action)
+            return {"job_id": run.id, "redirect_url": "/jobs"}
+
+        async def inline_action() -> None:
+            await action(session)
+
+        await run_tracked_job(session, tracked_name, inline_action)
     return redirect("/jobs")
+
+
+async def run_tracked_job(session: Session, job_name: str, action) -> None:
+    run = start_job(session, job_name)
+    if not acquire_collection_job_lock():
+        finish_job(session, run, "skipped", "Another collection or brief job is already running.")
+        return
+    try:
+        await action()
+        finish_job(session, run, "success")
+    except Exception as exc:
+        finish_job(session, run, "failed", str(exc))
+        raise
+    finally:
+        release_collection_job_lock()
+
+
+def _job_payload(job: FetchJobRun) -> dict[str, str | int | None]:
+    return {
+        "id": job.id,
+        "job_name": job.job_name,
+        "label": _job_label(job.job_name),
+        "status": job.status,
+        "started_at": format_beijing_time(job.started_at),
+        "ended_at": format_beijing_time(job.ended_at) if job.ended_at else "",
+        "error": job.error,
+    }
+
+
+def _job_label(job_name: str) -> str:
+    return {
+        "manual_brief": "抓取信息并生成 AI 简报",
+        "manual_quotes": "抓取行情",
+        "manual_details": "抓取交易和盘口信息",
+        "manual_news": "抓取新闻",
+        "manual_announcements": "抓取公告",
+        "manual_macro": "抓取宏观信息",
+        "manual_all": "抓取全部信息",
+        "quotes": "定时抓取行情",
+        "market_details": "定时抓取交易和盘口信息",
+        "news": "定时抓取新闻",
+        "announcements": "定时抓取公告",
+        "macro": "定时抓取宏观信息",
+        "cn_open_brief": "A 股/港股开盘后简报",
+        "us_open_brief": "美股开盘后简报",
+    }.get(job_name, job_name)
+
+
+def is_progress_request(request: Request) -> bool:
+    return request.headers.get("x-progress-request") == "1"
+
+
+def start_background_job(job_name: str, action) -> FetchJobRun:
+    with Session(engine) as session:
+        run = start_job(session, job_name)
+        run_id = run.id
+
+    def runner() -> None:
+        with Session(engine) as session:
+            run = session.get(FetchJobRun, run_id)
+            if run is None:
+                return
+            if not acquire_collection_job_lock():
+                finish_job(session, run, "skipped", "Another collection or brief job is already running.")
+                return
+            try:
+                asyncio.run(action(session))
+                finish_job(session, run, "success")
+            except Exception as exc:
+                finish_job(session, run, "failed", str(exc))
+            finally:
+                release_collection_job_lock()
+
+    Thread(target=runner, name=f"job-{job_name}-{run_id}", daemon=True).start()
+    return run

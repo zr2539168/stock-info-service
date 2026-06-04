@@ -26,5 +26,14 @@
   <main class="content">
     {% block content %}{% endblock %}
   </main>
+  <div class="progress-overlay" data-progress-overlay hidden>
+    <div class="progress-card">
+      <strong data-progress-title>正在处理</strong>
+      <p data-progress-message>请稍等，任务完成后页面会自动更新。</p>
+      <p class="progress-job" data-progress-job></p>
+      <div class="progress-track" aria-hidden="true"><span></span></div>
+      <progress aria-label="任务进度"></progress>
+    </div>
+  </div>
 </body>
 </html>
