@@ -31,6 +31,19 @@ class NormalizedTradingData:
 
 
 @dataclass
+class NormalizedHistoricalPrice:
+    symbol: str
+    market: str
+    trade_date: datetime
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+    source: str = ""
+
+
+@dataclass
 class NormalizedOrderBook:
     symbol: str
     market: str

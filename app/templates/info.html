@@ -100,6 +100,39 @@
 </section>
 
 <section class="panel">
+  <form method="post" action="/info/history/delete">
+    <div class="section-head">
+      <h2>历史行情</h2>
+      <div class="bulk-toolbar compact-toolbar">
+        <label class="inline-check"><input type="checkbox" data-select-all=".history-check"> 全选</label>
+        <button class="ghost danger" type="submit">删除所选</button>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th></th><th>股票</th><th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>成交量</th><th>来源</th><th></th></tr></thead>
+      <tbody>
+      {% for item in data.history %}
+        <tr>
+          <td><input class="history-check table-check" type="checkbox" name="item_ids" value="{{ item.id }}"></td>
+          <td>{{ stock_label(item.stock_id) }}</td>
+          <td>{{ item.trade_date | beijing_time("%Y-%m-%d") }}</td>
+          <td>{{ item.open }}</td>
+          <td>{{ item.high }}</td>
+          <td>{{ item.low }}</td>
+          <td>{{ item.close }}</td>
+          <td>{{ item.volume }}</td>
+          <td>{{ item.source }}</td>
+          <td><button class="ghost danger" type="submit" formaction="/info/history/{{ item.id }}/delete">删除</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="empty-cell">暂无历史行情。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </form>
+</section>
+
+<section class="panel">
   <form method="post" action="/info/trading/delete">
     <div class="section-head">
       <h2>交易数据</h2>

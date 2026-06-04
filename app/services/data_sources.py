@@ -8,7 +8,14 @@ from xml.etree import ElementTree
 import httpx
 
 from app.models import Stock
-from app.schemas import NormalizedArticle, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData, ResolvedStock
+from app.schemas import (
+    NormalizedArticle,
+    NormalizedHistoricalPrice,
+    NormalizedOrderBook,
+    NormalizedQuote,
+    NormalizedTradingData,
+    ResolvedStock,
+)
 from app.services.stock_parser import normalize_market, normalize_symbol, to_yfinance_symbol
 
 
@@ -112,6 +119,81 @@ class MarketDataProvider:
                 ensure_ascii=False,
             ),
         )
+
+    def fetch_historical_prices(self, market: str, symbol: str, period: str = "1mo") -> list[NormalizedHistoricalPrice]:
+        market = normalize_market(market)
+        symbol = normalize_symbol(symbol, market)
+        if market == "CN":
+            prices = self._fetch_akshare_cn_history(symbol, period)
+            if prices:
+                return prices
+        return self._fetch_yfinance_history(market, symbol, period)
+
+    def _fetch_yfinance_history(self, market: str, symbol: str, period: str) -> list[NormalizedHistoricalPrice]:
+        try:
+            import yfinance as yf  # type: ignore
+
+            frame = yf.Ticker(to_yfinance_symbol(symbol, market)).history(period=period, interval="1d")
+            if frame.empty:
+                return []
+            prices: list[NormalizedHistoricalPrice] = []
+            for index, row in frame.iterrows():
+                trade_date = index.to_pydatetime() if hasattr(index, "to_pydatetime") else index
+                if trade_date.tzinfo is None:
+                    trade_date = trade_date.replace(tzinfo=timezone.utc)
+                prices.append(
+                    NormalizedHistoricalPrice(
+                        symbol=symbol,
+                        market=market,
+                        trade_date=trade_date,
+                        open=_float_or_none(row.get("Open")),
+                        high=_float_or_none(row.get("High")),
+                        low=_float_or_none(row.get("Low")),
+                        close=_float_or_none(row.get("Close")),
+                        volume=_float_or_none(row.get("Volume")),
+                        source="yfinance history",
+                    )
+                )
+            return prices
+        except Exception:
+            return []
+
+    def _fetch_akshare_cn_history(self, symbol: str, period: str) -> list[NormalizedHistoricalPrice]:
+        try:
+            import akshare as ak  # type: ignore
+        except Exception:
+            return []
+
+        try:
+            frame = ak.stock_zh_a_hist(symbol=symbol, period="daily", adjust="")
+        except Exception:
+            try:
+                frame = ak.fund_etf_hist_em(symbol=symbol, period="daily", adjust="")
+            except Exception:
+                return []
+
+        if frame.empty:
+            return []
+        cutoff_days = {"5d": 8, "1mo": 45, "3mo": 120, "6mo": 220, "1y": 420}.get(period, 45)
+        frame = frame.tail(cutoff_days)
+        prices: list[NormalizedHistoricalPrice] = []
+        for _, row in frame.iterrows():
+            date_value = _row_get(row, COL_DATE) or _row_get(row, _u(0x4EA4, 0x6613, 0x65E5))
+            trade_date = _parse_datetime(date_value) or datetime.now(timezone.utc)
+            prices.append(
+                NormalizedHistoricalPrice(
+                    symbol=symbol,
+                    market="CN",
+                    trade_date=trade_date,
+                    open=_float_or_none(_row_get(row, COL_OPEN, COL_OPEN_ETF)),
+                    high=_float_or_none(_row_get(row, COL_HIGH, COL_HIGH_ETF)),
+                    low=_float_or_none(_row_get(row, COL_LOW, COL_LOW_ETF)),
+                    close=_float_or_none(_row_get(row, COL_PRICE, _u(0x6536, 0x76D8))),
+                    volume=_float_or_none(_row_get(row, COL_VOLUME)),
+                    source="AKShare history",
+                )
+            )
+        return prices
 
     def fetch_order_book(self, market: str, symbol: str) -> NormalizedOrderBook | None:
         market = normalize_market(market)

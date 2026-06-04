@@ -46,6 +46,20 @@ class TradingData(SQLModel, table=True):
     observed_at: datetime = Field(default_factory=utc_now, index=True)
 
 
+class HistoricalPrice(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stock_id: int = Field(index=True, foreign_key="stock.id")
+    trade_date: datetime = Field(index=True)
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    close: Optional[float] = None
+    volume: Optional[float] = None
+    source: str = Field(default="", max_length=64)
+    content_hash: str = Field(index=True, max_length=64)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class OrderBookSnapshot(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: int = Field(index=True, foreign_key="stock.id")

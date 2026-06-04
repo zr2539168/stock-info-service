@@ -1,6 +1,8 @@
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.models import AlertEvent, AlertRule, MarketQuote, Stock
+from datetime import datetime, timezone
+
+from app.models import AlertEvent, AlertRule, HistoricalPrice, MarketQuote, Stock
 from app.schemas import NormalizedQuote
 from app.services.collector import build_context, collect_quotes
 
@@ -53,3 +55,26 @@ def test_build_context_uses_stock_name_not_raw_stock_id() -> None:
 
         assert "CN 159501 纳指ETF嘉实" in context
         assert "stock_id=" not in context
+
+
+def test_build_context_filters_by_mentioned_stock() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        googl = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        aapl = Stock(market="US", symbol="AAPL", name="Apple Inc.")
+        session.add(googl)
+        session.add(aapl)
+        session.commit()
+        session.refresh(googl)
+        session.refresh(aapl)
+        trade_date = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        session.add(HistoricalPrice(stock_id=googl.id or 0, trade_date=trade_date, close=100, content_hash="g"))
+        session.add(HistoricalPrice(stock_id=aapl.id or 0, trade_date=trade_date, close=200, content_hash="a"))
+        session.commit()
+
+        context = build_context(session, query="请获取GOOGL最近一个月的行情数据")
+
+        assert "GOOGL" in context
+        assert "AAPL" not in context

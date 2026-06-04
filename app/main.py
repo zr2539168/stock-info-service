@@ -21,6 +21,7 @@ from app.models import (
     ChatMessage,
     ChatSession,
     FetchJobRun,
+    HistoricalPrice,
     MacroEvent,
     MarketQuote,
     NewsItem,
@@ -76,6 +77,7 @@ def watchlist_redirect(message: str, level: str = "info") -> RedirectResponse:
 
 INFO_MODELS = {
     "quotes": MarketQuote,
+    "history": HistoricalPrice,
     "trading": TradingData,
     "order_book": OrderBookSnapshot,
     "news": NewsItem,
@@ -204,6 +206,7 @@ def info_library(request: Request, session: Session = Depends(get_session)):
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
     data = {
         "quotes": session.exec(select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(100)).all(),
+        "history": session.exec(select(HistoricalPrice).order_by(col(HistoricalPrice.trade_date).desc()).limit(200)).all(),
         "trading": session.exec(select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(100)).all(),
         "order_book": session.exec(
             select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(100)

@@ -10,6 +10,7 @@ from app.models import (
     Announcement,
     Brief,
     FetchJobRun,
+    HistoricalPrice,
     MacroEvent,
     MarketQuote,
     NewsItem,
@@ -24,6 +25,7 @@ from app.services.content import compact_text, content_hash
 from app.services.data_sources import MarketDataProvider, NewsProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import get_runtime_config
+from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
 
 
 def latest_quote(session: Session, stock_id: int) -> MarketQuote | None:
@@ -124,18 +126,32 @@ async def generate_daily_brief(session: Session, stock_id: int | None = None, pu
 
 
 async def answer_question(session: Session, question: str) -> str:
+    fetch_note = await maybe_fetch_from_question(session, question)
     cfg = get_runtime_config(session)
     context = build_context(session, None, query=question)
+    if fetch_note:
+        context = f"{fetch_note}\n{context}"
     result = await DeepSeekClient(cfg).complete(
         f"请回答这个问题：{question}。回答必须引用已有来源；如果资料不足，请明确说明。", context
     )
     return result.content
 
 
+async def maybe_fetch_from_question(session: Session, question: str) -> str:
+    stocks = session.exec(select(Stock)).all()
+    plan = plan_fetch_from_text(question, list(stocks))
+    if plan is None:
+        return ""
+    result = execute_fetch_plan(session, plan)
+    return f"[自然语言抓取] {result.message}" if result.message else ""
+
+
 def build_context(session: Session, stock_id: int | None = None, query: str = "") -> str:
     pieces: list[str] = []
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
+    query_stock_ids = _matched_stock_ids(stocks, query) if query else []
     quote_stmt = select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(20)
+    history_stmt = select(HistoricalPrice).order_by(col(HistoricalPrice.trade_date).desc()).limit(80)
     trading_stmt = select(TradingData).order_by(col(TradingData.observed_at).desc()).limit(20)
     order_stmt = select(OrderBookSnapshot).order_by(col(OrderBookSnapshot.observed_at).desc()).limit(10)
     news_stmt = select(NewsItem).order_by(col(NewsItem.created_at).desc()).limit(20)
@@ -143,10 +159,18 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
     macro_stmt = select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(10)
     if stock_id is not None:
         quote_stmt = quote_stmt.where(MarketQuote.stock_id == stock_id)
+        history_stmt = history_stmt.where(HistoricalPrice.stock_id == stock_id)
         trading_stmt = trading_stmt.where(TradingData.stock_id == stock_id)
         order_stmt = order_stmt.where(OrderBookSnapshot.stock_id == stock_id)
         news_stmt = news_stmt.where(NewsItem.stock_id == stock_id)
         announcement_stmt = announcement_stmt.where(Announcement.stock_id == stock_id)
+    elif query_stock_ids:
+        quote_stmt = quote_stmt.where(MarketQuote.stock_id.in_(query_stock_ids))
+        history_stmt = history_stmt.where(HistoricalPrice.stock_id.in_(query_stock_ids))
+        trading_stmt = trading_stmt.where(TradingData.stock_id.in_(query_stock_ids))
+        order_stmt = order_stmt.where(OrderBookSnapshot.stock_id.in_(query_stock_ids))
+        news_stmt = news_stmt.where(NewsItem.stock_id.in_(query_stock_ids))
+        announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(query_stock_ids))
     if query:
         like = f"%{query[:40]}%"
         news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like))).limit(20)
@@ -155,6 +179,12 @@ def build_context(session: Session, stock_id: int | None = None, query: str = ""
         pieces.append(
             f"[行情] 股票={_stock_label(stocks, quote.stock_id)} price={quote.price} pct={quote.change_percent} "
             f"volume={quote.volume} source={quote.source} time={quote.observed_at}"
+        )
+    for price in session.exec(history_stmt).all():
+        pieces.append(
+            f"[历史行情] 股票={_stock_label(stocks, price.stock_id)} date={price.trade_date.date()} "
+            f"open={price.open} high={price.high} low={price.low} close={price.close} "
+            f"volume={price.volume} source={price.source}"
         )
     for trading in session.exec(trading_stmt).all():
         pieces.append(
@@ -181,6 +211,17 @@ def _stock_label(stocks: dict[int | None, Stock], stock_id: int | None) -> str:
         return f"未知股票({stock_id})"
     name = f" {stock.name}" if stock.name else ""
     return f"{stock.market} {stock.symbol}{name}"
+
+
+def _matched_stock_ids(stocks: dict[int | None, Stock], query: str) -> list[int]:
+    upper_query = query.upper()
+    ids: list[int] = []
+    for stock_id, stock in stocks.items():
+        if stock_id is None:
+            continue
+        if stock.symbol.upper() in upper_query or (stock.name and stock.name.upper() in upper_query):
+            ids.append(stock_id)
+    return ids
 
 
 def evaluate_alerts(session: Session) -> list[AlertEvent]:
