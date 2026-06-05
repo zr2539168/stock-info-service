@@ -1,21 +1,44 @@
 {% extends "base.html" %}
 {% block content %}
 <header class="page-head">
-  <h1>AI 对话</h1>
+  <div>
+    <h1>AI 对话</h1>
+    {% if chat_session %}
+      <p>{{ chat_session.title }} &middot; {{ chat_session.created_at | beijing_time }}</p>
+    {% else %}
+      <p>基于已采集信息继续分析。</p>
+    {% endif %}
+  </div>
   <form method="post" action="/chat/new"><button type="submit">新对话</button></form>
 </header>
-<section class="panel chat">
-  {% for message in messages %}
-    <article class="message {{ message.role }}">
-      <strong>{{ "你" if message.role == "user" else "AI" }}</strong>
-      <div class="markdown-body compact">{{ message.content | markdown }}</div>
-    </article>
-  {% else %}
-    <p class="muted">可以询问“今天自选股有什么重点变化？”</p>
-  {% endfor %}
-  <form method="post" action="/chat" class="chat-form">
-    <textarea name="question" rows="3" placeholder="基于已采集信息提问..." required></textarea>
-    <button type="submit">发送</button>
-  </form>
-</section>
+<div class="chat-layout">
+  <aside class="panel chat-history">
+    <div class="section-head">
+      <h2>历史对话</h2>
+    </div>
+    {% for item in history_sessions %}
+      <a class="chat-session-link {% if chat_session and item.id == chat_session.id %}active{% endif %}" href="/chat?session_id={{ item.id }}">
+        <strong>{{ item.title }}</strong>
+        <span>{{ item.created_at | beijing_time }}</span>
+      </a>
+    {% else %}
+      <p class="muted">暂无历史对话。</p>
+    {% endfor %}
+  </aside>
+  <section class="panel chat">
+    {% for message in messages %}
+      <article class="message {{ message.role }}">
+        <strong>{{ "你" if message.role == "user" else "AI" }}</strong>
+        <div class="markdown-body compact">{{ message.content | markdown }}</div>
+      </article>
+    {% else %}
+      <p class="muted">可以询问“今天自选股有什么重点变化？”</p>
+    {% endfor %}
+    <form method="post" action="/chat" class="chat-form">
+      {% if chat_session %}<input type="hidden" name="session_id" value="{{ chat_session.id }}">{% endif %}
+      <textarea name="question" rows="3" placeholder="基于已采集信息提问..." required></textarea>
+      <button type="submit">发送</button>
+    </form>
+  </section>
+</div>
 {% endblock %}

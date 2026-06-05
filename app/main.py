@@ -274,36 +274,64 @@ def delete_info_batch(kind: str, item_ids: list[int] = Form(default=[]), session
 
 
 @app.get("/chat", response_class=HTMLResponse)
-def chat(request: Request, session: Session = Depends(get_session)):
-    chat_session = session.exec(select(ChatSession).order_by(col(ChatSession.created_at).desc()).limit(1)).first()
+def chat(request: Request, session_id: int | None = None, session: Session = Depends(get_session)):
+    history_sessions = session.exec(select(ChatSession).order_by(col(ChatSession.created_at).desc()).limit(50)).all()
+    chat_session = _selected_chat_session(session, session_id, history_sessions)
     messages = []
     if chat_session:
         messages = session.exec(
             select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at)
         ).all()
-    return templates.TemplateResponse(request, "chat.html", {"chat_session": chat_session, "messages": messages})
+    return templates.TemplateResponse(
+        request,
+        "chat.html",
+        {"chat_session": chat_session, "messages": messages, "history_sessions": history_sessions},
+    )
 
 
 @app.post("/chat")
-async def ask_chat(question: str = Form(...), session: Session = Depends(get_session)):
-    chat_session = session.exec(select(ChatSession).order_by(col(ChatSession.created_at).desc()).limit(1)).first()
+async def ask_chat(
+    question: str = Form(...),
+    session_id: int | None = Form(None),
+    session: Session = Depends(get_session),
+):
+    chat_session = _selected_chat_session(session, session_id)
     if chat_session is None:
         chat_session = ChatSession(title=question[:80])
         session.add(chat_session)
         session.commit()
         session.refresh(chat_session)
+    elif chat_session.title == "新的对话":
+        chat_session.title = question[:80]
+        session.add(chat_session)
     session.add(ChatMessage(session_id=chat_session.id or 0, role="user", content=question))
     answer = await answer_question(session, question)
     session.add(ChatMessage(session_id=chat_session.id or 0, role="assistant", content=answer))
     session.commit()
-    return redirect("/chat")
+    return redirect(f"/chat?session_id={chat_session.id}")
 
 
 @app.post("/chat/new")
 def new_chat(session: Session = Depends(get_session)):
-    session.add(ChatSession())
+    chat_session = ChatSession()
+    session.add(chat_session)
     session.commit()
-    return redirect("/chat")
+    session.refresh(chat_session)
+    return redirect(f"/chat?session_id={chat_session.id}")
+
+
+def _selected_chat_session(
+    session: Session,
+    session_id: int | None,
+    history_sessions: list[ChatSession] | None = None,
+) -> ChatSession | None:
+    if session_id is not None:
+        selected = session.get(ChatSession, session_id)
+        if selected is not None:
+            return selected
+    if history_sessions is not None:
+        return history_sessions[0] if history_sessions else None
+    return session.exec(select(ChatSession).order_by(col(ChatSession.created_at).desc()).limit(1)).first()
 
 
 @app.get("/alerts", response_class=HTMLResponse)
