@@ -88,6 +88,16 @@ def get_collection_settings(session: Session) -> tuple[bool, str]:
 
 
 def workday_time_to_cron(value: str) -> str:
+    minute, hour = _parse_hhmm(value)
+    return f"{minute} {hour} * * 1-5"
+
+
+def daily_time_to_cron(value: str) -> str:
+    minute, hour = _parse_hhmm(value)
+    return f"{minute} {hour} * * *"
+
+
+def _parse_hhmm(value: str) -> tuple[int, int]:
     stripped = value.strip()
     try:
         hour_text, minute_text = stripped.split(":", 1)
@@ -98,7 +108,7 @@ def workday_time_to_cron(value: str) -> str:
 
     if not (0 <= hour <= 23 and 0 <= minute <= 59):
         raise ValueError("简报时间必须在 00:00 到 23:59 之间")
-    return f"{minute} {hour} * * 1-5"
+    return minute, hour
 
 
 def cron_to_workday_time(value: str) -> str:
@@ -107,6 +117,23 @@ def cron_to_workday_time(value: str) -> str:
         return ""
     minute, hour, day, month, weekday = parts
     if day != "*" or month != "*" or weekday != "1-5":
+        return ""
+    try:
+        hour_num = int(hour)
+        minute_num = int(minute)
+    except ValueError:
+        return ""
+    if not (0 <= hour_num <= 23 and 0 <= minute_num <= 59):
+        return ""
+    return f"{hour_num:02d}:{minute_num:02d}"
+
+
+def cron_to_daily_time(value: str) -> str:
+    parts = value.split()
+    if len(parts) != 5:
+        return ""
+    minute, hour, day, month, weekday = parts
+    if day != "*" or month != "*" or weekday != "*":
         return ""
     try:
         hour_num = int(hour)
@@ -138,5 +165,6 @@ def all_settings(session: Session) -> dict[str, str]:
         "us_open_brief_time": cron_to_workday_time(us_open_brief_cron),
         "daily_noon_brief_enabled": "true" if daily_noon_enabled else "false",
         "daily_noon_brief_cron": daily_noon_brief_cron,
+        "daily_noon_brief_time": cron_to_daily_time(daily_noon_brief_cron),
     }
 

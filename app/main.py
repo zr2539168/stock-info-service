@@ -58,7 +58,7 @@ from app.services.collector import (
 from app.services.data_sources import StockIdentityProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
-from app.services.settings_service import all_settings, get_runtime_config, set_setting, workday_time_to_cron
+from app.services.settings_service import all_settings, daily_time_to_cron, get_runtime_config, set_setting, workday_time_to_cron
 
 
 templates = Jinja2Templates(directory="app/templates")
@@ -447,6 +447,7 @@ def save_settings(
     collection_enabled: bool = Form(False),
     market_open_briefs_enabled: bool = Form(False),
     daily_noon_brief_enabled: bool = Form(False),
+    daily_noon_brief_time: str = Form(...),
     cn_open_brief_time: str = Form(...),
     us_open_brief_time: str = Form(...),
     session: Session = Depends(get_session),
@@ -454,6 +455,7 @@ def save_settings(
     try:
         cn_open_brief_cron = workday_time_to_cron(cn_open_brief_time)
         us_open_brief_cron = workday_time_to_cron(us_open_brief_time)
+        daily_noon_brief_cron = daily_time_to_cron(daily_noon_brief_time)
     except ValueError as exc:
         values = all_settings(session)
         values |= {
@@ -473,7 +475,7 @@ def save_settings(
     set_setting(session, "collect_all_cron", "0 * * * *")
     set_setting(session, "market_open_briefs_enabled", "true" if market_open_briefs_enabled else "false")
     set_setting(session, "daily_noon_brief_enabled", "true" if daily_noon_brief_enabled else "false")
-    set_setting(session, "daily_noon_brief_cron", "0 12 * * *")
+    set_setting(session, "daily_noon_brief_cron", daily_noon_brief_cron)
     set_setting(session, "cn_open_brief_cron", cn_open_brief_cron)
     set_setting(session, "us_open_brief_cron", us_open_brief_cron)
     configure_collection_job(scheduler, collection_enabled, "0 * * * *")
@@ -483,7 +485,7 @@ def save_settings(
         cn_open_brief_cron,
         us_open_brief_cron,
     )
-    configure_daily_noon_brief_job(scheduler, daily_noon_brief_enabled, "0 12 * * *")
+    configure_daily_noon_brief_job(scheduler, daily_noon_brief_enabled, daily_noon_brief_cron)
     return redirect("/settings")
 
 
