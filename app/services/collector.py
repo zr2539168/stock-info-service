@@ -241,7 +241,8 @@ def build_context(
     for quote in _prioritized_by_time(session, quote_stmt, MarketQuote.observed_at, 20, new_since):
         pieces.append(
             f"[行情] 股票={_stock_label(stocks, quote.stock_id)} price={quote.price} pct={quote.change_percent} "
-            f"volume={quote.volume} source={quote.source} time={quote.observed_at}"
+            f"volume={quote.volume} volume_ratio={quote.volume_ratio} volume_signal={quote.volume_signal} "
+            f"source={quote.source} time={quote.observed_at}"
         )
     for price in _prioritized_by_time(session, history_stmt, HistoricalPrice.created_at, 80, new_since):
         pieces.append(
@@ -252,7 +253,8 @@ def build_context(
     for trading in _prioritized_by_time(session, trading_stmt, TradingData.observed_at, 20, new_since):
         pieces.append(
             f"[交易数据] 股票={_stock_label(stocks, trading.stock_id)} price={trading.price} pct={trading.change_percent} "
-            f"volume={trading.volume} turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
+            f"volume={trading.volume} volume_ratio={trading.volume_ratio} volume_signal={trading.volume_signal} "
+            f"turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
         )
     for order in _prioritized_by_time(session, order_stmt, OrderBookSnapshot.observed_at, 10, new_since):
         pieces.append(
@@ -403,6 +405,8 @@ def _latest_alert_quote(session: Session, stock_id: int) -> MarketQuote | None:
         price=trading.price,
         change_percent=trading.change_percent,
         volume=trading.volume,
+        volume_ratio=trading.volume_ratio,
+        volume_signal=trading.volume_signal,
         source=trading.source,
         observed_at=trading.observed_at,
     )
@@ -434,6 +438,8 @@ def _quote_to_model(stock_id: int, quote: NormalizedQuote) -> MarketQuote:
         previous_close=quote.previous_close,
         change_percent=quote.change_percent,
         volume=quote.volume,
+        volume_ratio=quote.volume_ratio,
+        volume_signal=quote.volume_signal,
         source=quote.source,
     )
 
@@ -444,6 +450,8 @@ def _trading_to_model(stock_id: int, trading: NormalizedTradingData) -> TradingD
         price=trading.price,
         change_percent=trading.change_percent,
         volume=trading.volume,
+        volume_ratio=trading.volume_ratio,
+        volume_signal=trading.volume_signal,
         turnover=trading.turnover,
         source=trading.source,
         raw_data=trading.raw_data,

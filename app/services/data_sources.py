@@ -47,6 +47,10 @@ COL_LOW_ETF = _u(0x6700, 0x4F4E, 0x4EF7)
 COL_PREV_CLOSE = _u(0x6628, 0x6536)
 COL_CHANGE_PERCENT = _u(0x6DA8, 0x8DCC, 0x5E45)
 COL_VOLUME = _u(0x6210, 0x4EA4, 0x91CF)
+COL_VOLUME_RATIO = _u(0x91CF, 0x6BD4)
+VOLUME_SIGNAL_UP = _u(0x653E, 0x91CF)
+VOLUME_SIGNAL_DOWN = _u(0x7F29, 0x91CF)
+VOLUME_SIGNAL_FLAT = _u(0x5E73, 0x91CF)
 COL_NEWS_TITLE = _u(0x65B0, 0x95FB, 0x6807, 0x9898)
 COL_TITLE = _u(0x6807, 0x9898)
 COL_NEWS_SOURCE = _u(0x6587, 0x7AE0, 0x6765, 0x6E90)
@@ -106,6 +110,8 @@ class MarketDataProvider:
             price=quote.price,
             change_percent=quote.change_percent,
             volume=quote.volume,
+            volume_ratio=quote.volume_ratio,
+            volume_signal=quote.volume_signal,
             source=quote.source,
             raw_data=json.dumps(
                 {
@@ -116,6 +122,8 @@ class MarketDataProvider:
                     "previous_close": quote.previous_close,
                     "change_percent": quote.change_percent,
                     "volume": quote.volume,
+                    "volume_ratio": quote.volume_ratio,
+                    "volume_signal": quote.volume_signal,
                 },
                 ensure_ascii=False,
             ),
@@ -274,8 +282,9 @@ class MarketDataProvider:
             info = ticker.fast_info
             last_price = _float_or_none(getattr(info, "last_price", None))
             previous_close = _float_or_none(getattr(info, "previous_close", None))
+            hist = None
             if last_price is None:
-                hist = ticker.history(period="1d")
+                hist = ticker.history(period="1mo")
                 if hist.empty:
                     return None
                 item = hist.iloc[-1]
@@ -284,6 +293,12 @@ class MarketDataProvider:
                 volume = _float_or_none(item.get("Volume"))
             else:
                 volume = _float_or_none(getattr(info, "last_volume", None))
+            if hist is None:
+                try:
+                    hist = ticker.history(period="1mo")
+                except Exception:
+                    hist = None
+            volume_ratio = _volume_ratio_from_history(hist, volume)
             change_percent = None
             if last_price is not None and previous_close:
                 change_percent = (last_price - previous_close) / previous_close * 100
@@ -294,6 +309,8 @@ class MarketDataProvider:
                 previous_close=previous_close,
                 change_percent=change_percent,
                 volume=volume,
+                volume_ratio=volume_ratio,
+                volume_signal=classify_volume_signal(volume_ratio),
                 source="yfinance",
             )
         except Exception:
@@ -562,6 +579,7 @@ def _quote_from_dataframe(frame: object, symbol: str, source: str) -> Normalized
     if row.empty:
         return None
     item = row.iloc[0]
+    volume_ratio = _float_or_none(_row_get(item, COL_VOLUME_RATIO))
     return NormalizedQuote(
         symbol=symbol,
         market="CN",
@@ -572,6 +590,8 @@ def _quote_from_dataframe(frame: object, symbol: str, source: str) -> Normalized
         previous_close=_float_or_none(_row_get(item, COL_PREV_CLOSE)),
         change_percent=_float_or_none(_row_get(item, COL_CHANGE_PERCENT)),
         volume=_float_or_none(_row_get(item, COL_VOLUME)),
+        volume_ratio=volume_ratio,
+        volume_signal=classify_volume_signal(volume_ratio),
         source=source,
     )
 
@@ -686,3 +706,30 @@ def _float_or_none(value: object) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def classify_volume_signal(volume_ratio: float | None) -> str:
+    if volume_ratio is None:
+        return ""
+    if volume_ratio >= 1.5:
+        return VOLUME_SIGNAL_UP
+    if volume_ratio <= 0.8:
+        return VOLUME_SIGNAL_DOWN
+    return VOLUME_SIGNAL_FLAT
+
+
+def _volume_ratio_from_history(frame: object, latest_volume: float | None) -> float | None:
+    if latest_volume is None or frame is None or getattr(frame, "empty", True):
+        return None
+    try:
+        volumes = [_float_or_none(value) for value in frame["Volume"].tolist()]
+    except Exception:
+        return None
+    volumes = [value for value in volumes if value is not None and value > 0]
+    if len(volumes) < 2:
+        return None
+    baseline = volumes[:-1][-20:] or volumes[-20:]
+    average_volume = sum(baseline) / len(baseline)
+    if average_volume <= 0:
+        return None
+    return round(latest_volume / average_volume, 4)

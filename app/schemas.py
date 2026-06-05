@@ -15,6 +15,8 @@ class NormalizedQuote:
     previous_close: float | None = None
     change_percent: float | None = None
     volume: float | None = None
+    volume_ratio: float | None = None
+    volume_signal: str = ""
     source: str = ""
 
 
@@ -25,6 +27,8 @@ class NormalizedTradingData:
     price: float | None = None
     change_percent: float | None = None
     volume: float | None = None
+    volume_ratio: float | None = None
+    volume_signal: str = ""
     turnover: float | None = None
     source: str = ""
     raw_data: str = ""

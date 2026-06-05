@@ -24,6 +24,8 @@ class FakeProvider:
             price=12.3,
             change_percent=3.2,
             volume=2000,
+            volume_ratio=1.6,
+            volume_signal="放量",
             source="fake",
         )
 
@@ -58,6 +60,8 @@ class FakeTradingAlertProvider:
             price=12,
             change_percent=1,
             volume=5000,
+            volume_ratio=0.7,
+            volume_signal="缩量",
             source="fake trading",
         )
 
@@ -207,6 +211,33 @@ def test_build_context_uses_stock_name_not_raw_stock_id() -> None:
 
         assert "CN 159501 纳指ETF嘉实" in context
         assert "stock_id=" not in context
+
+
+def test_build_context_includes_volume_ratio_and_signal() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        session.add(
+            MarketQuote(
+                stock_id=stock.id or 0,
+                price=120,
+                volume=2000,
+                volume_ratio=1.6,
+                volume_signal="放量",
+                source="test",
+            )
+        )
+        session.commit()
+
+        context = build_context(session)
+
+        assert "volume_ratio=1.6" in context
+        assert "volume_signal=放量" in context
 
 
 def test_build_context_filters_by_mentioned_stock() -> None:

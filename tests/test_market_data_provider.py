@@ -15,6 +15,7 @@ from app.services.data_sources import (
     COL_PREV_CLOSE,
     COL_PRICE,
     COL_VOLUME,
+    COL_VOLUME_RATIO,
     MarketDataProvider,
     _institutional_cost_proxy,
     _summarize_finra_rows,
@@ -38,6 +39,7 @@ def test_cn_quote_falls_back_to_etf_spot(monkeypatch) -> None:
                     COL_PREV_CLOSE: 2.153,
                     COL_CHANGE_PERCENT: -2.14,
                     COL_VOLUME: 1149889,
+                    COL_VOLUME_RATIO: 1.8,
                 }
             ]
         ),
@@ -50,6 +52,8 @@ def test_cn_quote_falls_back_to_etf_spot(monkeypatch) -> None:
     assert quote.symbol == "159501"
     assert quote.price == 2.107
     assert quote.open == 2.12
+    assert quote.volume_ratio == 1.8
+    assert quote.volume_signal == "放量"
     assert quote.source == "AKShare ETF"
 
 

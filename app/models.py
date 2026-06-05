@@ -30,6 +30,8 @@ class MarketQuote(SQLModel, table=True):
     previous_close: Optional[float] = None
     change_percent: Optional[float] = None
     volume: Optional[float] = None
+    volume_ratio: Optional[float] = None
+    volume_signal: str = Field(default="", max_length=32)
     source: str = Field(default="", max_length=64)
     observed_at: datetime = Field(default_factory=utc_now, index=True)
 
@@ -40,6 +42,8 @@ class TradingData(SQLModel, table=True):
     price: Optional[float] = None
     change_percent: Optional[float] = None
     volume: Optional[float] = None
+    volume_ratio: Optional[float] = None
+    volume_signal: str = Field(default="", max_length=32)
     turnover: Optional[float] = None
     source: str = Field(default="", max_length=64)
     raw_data: str = Field(default="")

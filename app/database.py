@@ -29,6 +29,7 @@ def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _migrate_alert_rule_push_mode()
     _migrate_brief_scope_key()
+    _migrate_volume_analysis_columns()
     _mark_interrupted_jobs()
 
 
@@ -56,6 +57,25 @@ def _migrate_brief_scope_key() -> None:
         return
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE brief ADD COLUMN scope_key VARCHAR(128) NOT NULL DEFAULT ''"))
+
+
+def _migrate_volume_analysis_columns() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    for table_name in ("marketquote", "tradingdata"):
+        _add_sqlite_column_if_missing(table_name, "volume_ratio", "REAL")
+        _add_sqlite_column_if_missing(table_name, "volume_signal", "VARCHAR(32) NOT NULL DEFAULT ''")
+
+
+def _add_sqlite_column_if_missing(table_name: str, column_name: str, column_sql: str) -> None:
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns(table_name)}
+    if column_name in columns:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"))
 
 
 def _mark_interrupted_jobs() -> None:
