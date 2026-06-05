@@ -17,10 +17,15 @@
       <h2>历史对话</h2>
     </div>
     {% for item in history_sessions %}
-      <a class="chat-session-link {% if chat_session and item.id == chat_session.id %}active{% endif %}" href="/chat?session_id={{ item.id }}">
-        <strong>{{ item.title }}</strong>
-        <span>{{ item.created_at | beijing_time }}</span>
-      </a>
+      <div class="chat-session-row {% if chat_session and item.id == chat_session.id %}active{% endif %}">
+        <a class="chat-session-link" href="/chat?session_id={{ item.id }}">
+          <strong>{{ item.title }}</strong>
+          <span>{{ item.created_at | beijing_time }}</span>
+        </a>
+        <form method="post" action="/chat/{{ item.id }}/delete">
+          <button class="ghost danger" type="submit">删除</button>
+        </form>
+      </div>
     {% else %}
       <p class="muted">暂无历史对话。</p>
     {% endfor %}

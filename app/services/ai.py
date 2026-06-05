@@ -93,6 +93,42 @@ class DeepSeekClient:
     async def test_connection(self) -> AiResult:
         return await self.complete("用一句话回复：连接正常。", "")
 
+    async def summarize_chat_title(self, question: str, answer: str) -> AiResult:
+        if not self.config.deepseek_api_key:
+            return AiResult(False, fallback_chat_title(question), "DeepSeek API Key 未配置")
+
+        payload = {
+            "model": self.config.deepseek_model or "deepseek-v4-flash",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是对话标题生成助手。根据用户问题和AI回答生成一个中文简短标题，"
+                        "不超过18个汉字或30个字符，不要引号，不要标点堆砌，不要解释。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"用户问题：{question}\nAI回答：{compact_text(answer, 600)}\n请输出简短标题。",
+                },
+            ],
+            "temperature": 0.2,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json",
+        }
+        base_url = self.config.deepseek_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                content = cleanup_chat_title(data["choices"][0]["message"]["content"])
+                return AiResult(True, content or fallback_chat_title(question))
+        except Exception as exc:
+            return AiResult(False, fallback_chat_title(question), str(exc))
+
     async def translate_article_to_chinese(self, title: str, summary: str = "") -> TranslationResult:
         if not self.config.deepseek_api_key:
             return TranslationResult(False, title, summary, "DeepSeek API Key 未配置")
@@ -156,6 +192,19 @@ def fallback_summary(user_prompt: str, context: str) -> str:
         "风险提示：免费数据源可能延迟或缺失，请以交易所和公司公告为准。\n\n"
         "非投资建议。"
     )
+
+
+def fallback_chat_title(question: str) -> str:
+    title = cleanup_chat_title(question)
+    return title or "新的对话"
+
+
+def cleanup_chat_title(title: str) -> str:
+    cleaned = " ".join((title or "").strip().strip("\"'“”‘’`").split())
+    for prefix in ("标题：", "简短标题：", "对话标题："):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+    return compact_text(cleaned, 30)
 
 
 def needs_chinese_translation(title: str, summary: str = "") -> bool:

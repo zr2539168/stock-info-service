@@ -528,15 +528,28 @@ pre {
   gap: 8px;
 }
 
-.chat-session-link {
+.chat-session-row {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: #fff;
+}
+
+.chat-session-link {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
   color: var(--text);
   text-decoration: none;
-  background: #fff;
+}
+
+.chat-session-link strong,
+.chat-session-link span {
+  overflow-wrap: anywhere;
 }
 
 .chat-session-link span {
@@ -544,9 +557,13 @@ pre {
   font-size: 12px;
 }
 
-.chat-session-link.active {
+.chat-session-row.active {
   border-color: var(--accent);
   background: #eef8f5;
+}
+
+.chat-session-row .ghost {
+  padding: 8px 10px;
 }
 
 .chat-form {

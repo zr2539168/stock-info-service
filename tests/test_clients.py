@@ -44,6 +44,11 @@ async def _translation_call() -> tuple[str, str]:
     return result.title, result.summary
 
 
+async def _chat_title_call() -> str:
+    result = await DeepSeekClient(config()).summarize_chat_title("请分析GOOGL", "GOOGL成交量放大。")
+    return result.content
+
+
 def test_deepseek_translation_request_shape() -> None:
     with respx.mock(assert_all_called=True) as router:
         route = router.post("https://deepseek.test/chat/completions").mock(
@@ -69,6 +74,21 @@ def test_deepseek_translation_request_shape() -> None:
         payload = route.calls[0].request.content.decode()
         assert "Apple rises" in payload
         assert "简体中文" in payload
+
+
+def test_deepseek_chat_title_request_shape() -> None:
+    with respx.mock(assert_all_called=True) as router:
+        route = router.post("https://deepseek.test/chat/completions").mock(
+            return_value=Response(200, json={"choices": [{"message": {"content": "GOOGL成交量分析"}}]})
+        )
+        import asyncio
+
+        title = asyncio.run(_chat_title_call())
+
+        assert title == "GOOGL成交量分析"
+        payload = route.calls[0].request.content.decode()
+        assert "简短标题" in payload
+        assert "GOOGL成交量放大" in payload
 
 
 def test_translation_detection() -> None:

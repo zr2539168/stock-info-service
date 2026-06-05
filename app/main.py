@@ -39,7 +39,7 @@ from app.scheduler import (
     configure_collection_job,
     configure_market_open_brief_jobs,
 )
-from app.services.ai import DeepSeekClient
+from app.services.ai import DeepSeekClient, fallback_chat_title
 from app.services.collector import (
     answer_question,
     collect_all_information,
@@ -297,16 +297,16 @@ async def ask_chat(
 ):
     chat_session = _selected_chat_session(session, session_id)
     if chat_session is None:
-        chat_session = ChatSession(title=question[:80])
+        chat_session = ChatSession()
         session.add(chat_session)
         session.commit()
         session.refresh(chat_session)
-    elif chat_session.title == "新的对话":
-        chat_session.title = question[:80]
-        session.add(chat_session)
     session.add(ChatMessage(session_id=chat_session.id or 0, role="user", content=question))
     answer = await answer_question(session, question)
     session.add(ChatMessage(session_id=chat_session.id or 0, role="assistant", content=answer))
+    if _should_update_chat_title(chat_session):
+        chat_session.title = await summarize_chat_title(session, question, answer)
+        session.add(chat_session)
     session.commit()
     return redirect(f"/chat?session_id={chat_session.id}")
 
@@ -318,6 +318,28 @@ def new_chat(session: Session = Depends(get_session)):
     session.commit()
     session.refresh(chat_session)
     return redirect(f"/chat?session_id={chat_session.id}")
+
+
+@app.post("/chat/{session_id}/delete")
+def delete_chat(session_id: int, session: Session = Depends(get_session)):
+    chat_session = session.get(ChatSession, session_id)
+    if chat_session is not None:
+        messages = session.exec(select(ChatMessage).where(ChatMessage.session_id == session_id)).all()
+        for message in messages:
+            session.delete(message)
+        session.delete(chat_session)
+        session.commit()
+    return redirect("/chat")
+
+
+async def summarize_chat_title(session: Session, question: str, answer: str) -> str:
+    result = await DeepSeekClient(get_runtime_config(session)).summarize_chat_title(question, answer)
+    return result.content or fallback_chat_title(question)
+
+
+def _should_update_chat_title(chat_session: ChatSession) -> bool:
+    title = (chat_session.title or "").strip()
+    return not title or title == "新的对话"
 
 
 def _selected_chat_session(
