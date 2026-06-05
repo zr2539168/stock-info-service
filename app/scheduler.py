@@ -24,6 +24,9 @@ from app.services.collector import (
 )
 
 
+BRIEF_COLLECTION_WAIT_SECONDS = 60 * 60
+
+
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=settings.timezone)
     configure_collection_job(scheduler, settings.collection_enabled, settings.collect_all_cron)
@@ -112,7 +115,7 @@ def apply_daily_noon_brief_settings(scheduler: BackgroundScheduler) -> None:
 
 def _run_collect_all_job() -> None:
     with Session(engine) as session:
-        run, locked = _start_locked_job(session, "collect_all")
+        run, locked, _ = _start_locked_job(session, "collect_all")
         if not locked:
             return
         try:
@@ -135,11 +138,16 @@ def _run_us_open_brief_job() -> None:
 
 def _run_daily_noon_brief_job() -> None:
     with Session(engine) as session:
-        run, locked = _start_locked_job(session, "daily_noon_brief")
+        run, locked, waited = _start_locked_job(
+            session,
+            "daily_noon_brief",
+            wait_seconds=BRIEF_COLLECTION_WAIT_SECONDS,
+        )
         if not locked:
             return
         try:
-            asyncio.run(collect_all_information(session))
+            if _should_collect_before_brief(waited):
+                asyncio.run(collect_all_information(session))
             asyncio.run(push_pending_alert_events(session))
             asyncio.run(generate_daily_brief(session, push=True, scope_label="最新24小时", latest_hours=24))
             finish_job(session, run, "success")
@@ -151,20 +159,48 @@ def _run_daily_noon_brief_job() -> None:
 
 def _run_market_open_brief_job(market: str, markets: set[str], label: str) -> None:
     with Session(engine) as session:
-        run = start_job(session, f"{market.lower()}_open_brief")
+        job_name = f"{market.lower()}_open_brief"
+        run = start_job(session, job_name)
         try:
             if not is_market_trading_day(market):
                 finish_job(session, run, "skipped", f"{market} market is closed")
                 return
-            asyncio.run(generate_daily_brief(session, push=True, scope_label=label, markets=markets))
-            finish_job(session, run, "success")
+            locked, waited = _acquire_collection_lock_for_brief(run, session)
+            if not locked:
+                return
+            try:
+                if _should_collect_before_brief(waited):
+                    asyncio.run(collect_all_information(session))
+                asyncio.run(push_pending_alert_events(session))
+                asyncio.run(generate_daily_brief(session, push=True, scope_label=label, markets=markets))
+                finish_job(session, run, "success")
+            finally:
+                release_collection_job_lock()
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
 
 
-def _start_locked_job(session: Session, name: str):
+def _start_locked_job(session: Session, name: str, wait_seconds: float | None = None):
     run = start_job(session, name)
+    locked, waited = _acquire_collection_lock(run, session, wait_seconds)
+    return run, locked, waited
+
+
+def _acquire_collection_lock_for_brief(run, session: Session) -> tuple[bool, bool]:
+    return _acquire_collection_lock(run, session, BRIEF_COLLECTION_WAIT_SECONDS)
+
+
+def _acquire_collection_lock(run, session: Session, wait_seconds: float | None = None) -> tuple[bool, bool]:
     if not acquire_collection_job_lock():
-        finish_job(session, run, "skipped", "Another collection job is already running.")
-        return run, False
-    return run, True
+        if wait_seconds is None:
+            finish_job(session, run, "skipped", "Another collection job is already running.")
+            return False, False
+        if not acquire_collection_job_lock(timeout=wait_seconds):
+            finish_job(session, run, "skipped", "Timed out waiting for the running collection job.")
+            return False, True
+        return True, True
+    return True, False
+
+
+def _should_collect_before_brief(waited_for_collection: bool) -> bool:
+    return not waited_for_collection

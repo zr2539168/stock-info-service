@@ -1,4 +1,5 @@
 from app.scheduler import (
+    _should_collect_before_brief,
     build_scheduler,
     configure_collection_job,
     configure_daily_noon_brief_job,
@@ -68,6 +69,14 @@ def test_daily_noon_brief_job_can_be_reconfigured() -> None:
     trigger = str(scheduler.get_job("daily_noon_brief").trigger)
     assert "hour='12'" in trigger
     assert "minute='15'" in trigger
+
+
+def test_brief_job_collects_when_lock_is_available() -> None:
+    assert _should_collect_before_brief(waited_for_collection=False)
+
+
+def test_brief_job_skips_duplicate_collection_after_waiting_for_running_collection() -> None:
+    assert not _should_collect_before_brief(waited_for_collection=True)
 
 
 def test_market_open_brief_jobs_can_be_reconfigured() -> None:
