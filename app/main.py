@@ -228,6 +228,7 @@ def delete_briefs(item_ids: list[int] = Form(default=[]), session: Session = Dep
 @app.get("/info", response_class=HTMLResponse)
 def info_library(request: Request, session: Session = Depends(get_session)):
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
+    collection_running = is_collection_running(session)
     data = {
         "quotes": session.exec(select(MarketQuote).order_by(col(MarketQuote.observed_at).desc()).limit(100)).all(),
         "history": session.exec(select(HistoricalPrice).order_by(col(HistoricalPrice.trade_date).desc()).limit(200)).all(),
@@ -242,7 +243,11 @@ def info_library(request: Request, session: Session = Depends(get_session)):
         "announcements": session.exec(select(Announcement).order_by(col(Announcement.created_at).desc()).limit(100)).all(),
         "macro": session.exec(select(MacroEvent).order_by(col(MacroEvent.created_at).desc()).limit(100)).all(),
     }
-    return templates.TemplateResponse(request, "info.html", {"data": data, "stocks": stocks})
+    return templates.TemplateResponse(
+        request,
+        "info.html",
+        {"data": data, "stocks": stocks, "collection_running": collection_running},
+    )
 
 
 @app.post("/info/{kind}/{item_id}/delete")
@@ -476,6 +481,8 @@ def current_jobs(job_id: int | None = None, session: Session = Depends(get_sessi
 
 @app.post("/jobs/run/{job_name}")
 async def run_job(job_name: str, request: Request, session: Session = Depends(get_session)):
+    redirect_url = request.query_params.get("redirect_url", "/jobs")
+
     async def action(job_session: Session) -> None:
         if job_name == "quotes":
             await collect_quotes(job_session)
@@ -501,13 +508,13 @@ async def run_job(job_name: str, request: Request, session: Session = Depends(ge
         tracked_name = f"manual_{job_name}"
         if is_progress_request(request):
             run = start_background_job(tracked_name, action, use_collection_lock=is_collection_job_name(tracked_name))
-            return {"job_id": run.id, "redirect_url": "/jobs"}
+            return {"job_id": run.id, "redirect_url": redirect_url}
 
         async def inline_action() -> None:
             await action(session)
 
         await run_tracked_job(session, tracked_name, inline_action, use_collection_lock=is_collection_job_name(tracked_name))
-    return redirect("/jobs")
+    return redirect(redirect_url)
 
 
 async def run_tracked_job(session: Session, job_name: str, action, use_collection_lock: bool = True) -> None:

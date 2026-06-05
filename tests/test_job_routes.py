@@ -59,3 +59,23 @@ def test_progress_job_request_returns_job_id(monkeypatch) -> None:
     payload = response.json()
     assert payload["job_id"] is not None
     assert payload["redirect_url"] == "/jobs"
+
+
+def test_info_page_all_fetch_button_uses_progress_overlay() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+
+    def override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        with TestClient(app) as client:
+            response = client.get("/info")
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 200
+    assert 'data-progress="' in response.text
+    assert "/jobs/run/all?redirect_url=/info" in response.text
