@@ -34,9 +34,11 @@ from app.models import (
 )
 from app.scheduler import (
     apply_collection_settings,
+    apply_daily_noon_brief_settings,
     apply_market_open_brief_settings,
     build_scheduler,
     configure_collection_job,
+    configure_daily_noon_brief_job,
     configure_market_open_brief_jobs,
 )
 from app.services.ai import DeepSeekClient, fallback_chat_title
@@ -73,6 +75,7 @@ async def lifespan(app: FastAPI):
     init_db()
     apply_collection_settings(scheduler)
     apply_market_open_brief_settings(scheduler)
+    apply_daily_noon_brief_settings(scheduler)
     scheduler.start()
     yield
     scheduler.shutdown(wait=False)
@@ -443,6 +446,7 @@ def save_settings(
     pushdeer_endpoint: str = Form(...),
     collection_enabled: bool = Form(False),
     market_open_briefs_enabled: bool = Form(False),
+    daily_noon_brief_enabled: bool = Form(False),
     cn_open_brief_time: str = Form(...),
     us_open_brief_time: str = Form(...),
     session: Session = Depends(get_session),
@@ -468,6 +472,8 @@ def save_settings(
     set_setting(session, "collection_enabled", "true" if collection_enabled else "false")
     set_setting(session, "collect_all_cron", "0 * * * *")
     set_setting(session, "market_open_briefs_enabled", "true" if market_open_briefs_enabled else "false")
+    set_setting(session, "daily_noon_brief_enabled", "true" if daily_noon_brief_enabled else "false")
+    set_setting(session, "daily_noon_brief_cron", "0 12 * * *")
     set_setting(session, "cn_open_brief_cron", cn_open_brief_cron)
     set_setting(session, "us_open_brief_cron", us_open_brief_cron)
     configure_collection_job(scheduler, collection_enabled, "0 * * * *")
@@ -477,6 +483,7 @@ def save_settings(
         cn_open_brief_cron,
         us_open_brief_cron,
     )
+    configure_daily_noon_brief_job(scheduler, daily_noon_brief_enabled, "0 12 * * *")
     return redirect("/settings")
 
 
@@ -607,6 +614,7 @@ def _job_label(job_name: str) -> str:
         "manual_macro": "抓取宏观信息",
         "manual_all": "抓取全部信息",
         "collect_all": "定时抓取全部信息",
+        "daily_noon_brief": "每日中午24小时简报",
         "quotes": "定时抓取行情",
         "market_details": "定时抓取交易和盘口信息",
         "news": "定时抓取新闻",

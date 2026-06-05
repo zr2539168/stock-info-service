@@ -20,6 +20,11 @@
     </label>
     <p class="muted">服务启动后默认开启，每 1 小时抓取一次全部信息；关闭后仍可在任务页手动抓取。</p>
     <label class="inline-check">
+      <input name="daily_noon_brief_enabled" type="checkbox" value="true" {% if settings.daily_noon_brief_enabled == "true" %}checked{% endif %}>
+      开启每天中午 12 点最新 24 小时简报推送
+    </label>
+    <p class="muted">每天北京时间 12:00 自动抓取全部信息，只汇总最近 24 小时的新资料，生成 AI 简报并通过 PushDeer 推送。</p>
+    <label class="inline-check">
       <input name="market_open_briefs_enabled" type="checkbox" value="true" {% if settings.market_open_briefs_enabled == "true" %}checked{% endif %}>
       开启开盘后简报
     </label>

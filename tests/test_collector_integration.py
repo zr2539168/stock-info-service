@@ -84,10 +84,13 @@ class FakePushClient:
 
 
 class FakeDeepSeekClient:
+    last_context = ""
+
     def __init__(self, config) -> None:
         self.config = config
 
     async def complete(self, user_prompt: str, context: str = "") -> AiResult:
+        FakeDeepSeekClient.last_context = context
         return AiResult(True, "简报正文")
 
 
@@ -143,6 +146,50 @@ def test_generate_daily_brief_stores_market_scope(monkeypatch) -> None:
         brief = asyncio.run(generate_daily_brief(session, markets={"US"}))
 
         assert brief.scope_key == "markets:US"
+
+
+def test_generate_daily_brief_can_limit_context_to_latest_24_hours(monkeypatch) -> None:
+    import app.services.collector as collector
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 5, 4, 0, tzinfo=timezone.utc)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(collector, "datetime", FixedDatetime)
+    monkeypatch.setattr(collector, "DeepSeekClient", FakeDeepSeekClient)
+    FakeDeepSeekClient.last_context = ""
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        session.add(
+            MarketQuote(
+                stock_id=stock.id or 0,
+                price=100,
+                source="old-source",
+                observed_at=datetime(2026, 6, 4, 3, 59, tzinfo=timezone.utc),
+            )
+        )
+        session.add(
+            MarketQuote(
+                stock_id=stock.id or 0,
+                price=110,
+                source="fresh-source",
+                observed_at=datetime(2026, 6, 4, 4, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        asyncio.run(generate_daily_brief(session, scope_label="最新24小时", latest_hours=24))
+
+        assert "source=fresh-source" in FakeDeepSeekClient.last_context
+        assert "source=old-source" not in FakeDeepSeekClient.last_context
 
 
 def test_one_time_alert_disables_after_trigger() -> None:

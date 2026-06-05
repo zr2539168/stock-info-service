@@ -32,6 +32,8 @@ class EnvSettings:
     market_open_briefs_enabled: bool = env("MARKET_OPEN_BRIEFS_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
     cn_open_brief_cron: str = env("CN_OPEN_BRIEF_CRON", "0 10 * * 1-5")
     us_open_brief_cron: str = env("US_OPEN_BRIEF_CRON", "0 10 * * 1-5")
+    daily_noon_brief_enabled: bool = env("DAILY_NOON_BRIEF_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+    daily_noon_brief_cron: str = env("DAILY_NOON_BRIEF_CRON", "0 12 * * *")
 
 
 settings = EnvSettings()

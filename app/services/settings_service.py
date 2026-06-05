@@ -12,6 +12,8 @@ from app.schemas import RuntimeConfig
 MARKET_OPEN_BRIEFS_ENABLED_KEY = "market_open_briefs_enabled"
 CN_OPEN_BRIEF_CRON_KEY = "cn_open_brief_cron"
 US_OPEN_BRIEF_CRON_KEY = "us_open_brief_cron"
+DAILY_NOON_BRIEF_ENABLED_KEY = "daily_noon_brief_enabled"
+DAILY_NOON_BRIEF_CRON_KEY = "daily_noon_brief_cron"
 COLLECTION_ENABLED_KEY = "collection_enabled"
 COLLECT_ALL_CRON_KEY = "collect_all_cron"
 
@@ -26,6 +28,8 @@ SETTING_KEYS = {
     MARKET_OPEN_BRIEFS_ENABLED_KEY: False,
     CN_OPEN_BRIEF_CRON_KEY: False,
     US_OPEN_BRIEF_CRON_KEY: False,
+    DAILY_NOON_BRIEF_ENABLED_KEY: False,
+    DAILY_NOON_BRIEF_CRON_KEY: False,
 }
 
 
@@ -64,6 +68,14 @@ def get_market_open_brief_settings(session: Session) -> tuple[bool, str, str]:
         enabled.lower() in {"1", "true", "yes", "on"},
         get_setting(session, CN_OPEN_BRIEF_CRON_KEY, settings.cn_open_brief_cron),
         get_setting(session, US_OPEN_BRIEF_CRON_KEY, settings.us_open_brief_cron),
+    )
+
+
+def get_daily_noon_brief_settings(session: Session) -> tuple[bool, str]:
+    enabled = get_setting(session, DAILY_NOON_BRIEF_ENABLED_KEY, str(settings.daily_noon_brief_enabled))
+    return (
+        enabled.lower() in {"1", "true", "yes", "on"},
+        get_setting(session, DAILY_NOON_BRIEF_CRON_KEY, settings.daily_noon_brief_cron),
     )
 
 
@@ -110,6 +122,7 @@ def all_settings(session: Session) -> dict[str, str]:
     cfg = get_runtime_config(session)
     collection_enabled, collect_all_cron = get_collection_settings(session)
     market_open_enabled, cn_open_brief_cron, us_open_brief_cron = get_market_open_brief_settings(session)
+    daily_noon_enabled, daily_noon_brief_cron = get_daily_noon_brief_settings(session)
     return {
         "deepseek_api_key": cfg.deepseek_api_key,
         "deepseek_base_url": cfg.deepseek_base_url,
@@ -123,5 +136,7 @@ def all_settings(session: Session) -> dict[str, str]:
         "cn_open_brief_time": cron_to_workday_time(cn_open_brief_cron),
         "us_open_brief_cron": us_open_brief_cron,
         "us_open_brief_time": cron_to_workday_time(us_open_brief_cron),
+        "daily_noon_brief_enabled": "true" if daily_noon_enabled else "false",
+        "daily_noon_brief_cron": daily_noon_brief_cron,
     }
 

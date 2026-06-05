@@ -1,4 +1,9 @@
-from app.scheduler import build_scheduler, configure_collection_job, configure_market_open_brief_jobs
+from app.scheduler import (
+    build_scheduler,
+    configure_collection_job,
+    configure_daily_noon_brief_job,
+    configure_market_open_brief_jobs,
+)
 
 
 def test_collection_job_is_registered_by_default() -> None:
@@ -9,6 +14,13 @@ def test_collection_job_is_registered_by_default() -> None:
     assert "quotes" not in job_ids
     assert "market_details" not in job_ids
     assert "news" not in job_ids
+
+
+def test_daily_noon_brief_job_is_registered_by_default() -> None:
+    scheduler = build_scheduler()
+    job_ids = {job.id for job in scheduler.get_jobs()}
+
+    assert "daily_noon_brief" in job_ids
 
 
 def test_market_open_brief_jobs_are_registered() -> None:
@@ -37,6 +49,25 @@ def test_market_open_brief_jobs_can_be_disabled() -> None:
     job_ids = {job.id for job in scheduler.get_jobs()}
     assert "cn_open_brief" not in job_ids
     assert "us_open_brief" not in job_ids
+
+
+def test_daily_noon_brief_job_can_be_disabled() -> None:
+    scheduler = build_scheduler()
+
+    configure_daily_noon_brief_job(scheduler, False, "0 12 * * *")
+
+    job_ids = {job.id for job in scheduler.get_jobs()}
+    assert "daily_noon_brief" not in job_ids
+
+
+def test_daily_noon_brief_job_can_be_reconfigured() -> None:
+    scheduler = build_scheduler()
+
+    configure_daily_noon_brief_job(scheduler, True, "15 12 * * *")
+
+    trigger = str(scheduler.get_job("daily_noon_brief").trigger)
+    assert "hour='12'" in trigger
+    assert "minute='15'" in trigger
 
 
 def test_market_open_brief_jobs_can_be_reconfigured() -> None:

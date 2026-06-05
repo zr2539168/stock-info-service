@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, col, select
 
@@ -132,15 +132,18 @@ async def generate_daily_brief(
     push: bool = False,
     scope_label: str | None = None,
     markets: set[str] | None = None,
+    latest_hours: int | None = None,
 ) -> Brief:
     cfg = get_runtime_config(session)
     scope_key = _brief_scope_key(stock_id, markets)
     previous_brief = _latest_brief_for_scope(session, scope_key, stock_id)
+    latest_since = datetime.now(timezone.utc) - timedelta(hours=latest_hours) if latest_hours else None
     context = build_context(
         session,
         stock_id,
         markets=markets,
-        new_since=previous_brief.generated_at if previous_brief else None,
+        new_since=latest_since or (previous_brief.generated_at if previous_brief else None),
+        strict_new_since=latest_since is not None,
     )
     ai = DeepSeekClient(cfg)
     scope = scope_label or ("自选股" if stock_id is None else "个股")
@@ -193,6 +196,7 @@ def build_context(
     query: str = "",
     markets: set[str] | None = None,
     new_since: datetime | None = None,
+    strict_new_since: bool = False,
 ) -> str:
     pieces: list[str] = []
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
@@ -238,30 +242,30 @@ def build_context(
         like = f"%{query[:40]}%"
         news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like)))
 
-    for quote in _prioritized_by_time(session, quote_stmt, MarketQuote.observed_at, 20, new_since):
+    for quote in _prioritized_by_time(session, quote_stmt, MarketQuote.observed_at, 20, new_since, strict_new_since):
         pieces.append(
             f"[行情] 股票={_stock_label(stocks, quote.stock_id)} price={quote.price} pct={quote.change_percent} "
             f"volume={quote.volume} volume_ratio={quote.volume_ratio} volume_signal={quote.volume_signal} "
             f"source={quote.source} time={quote.observed_at}"
         )
-    for price in _prioritized_by_time(session, history_stmt, HistoricalPrice.created_at, 80, new_since):
+    for price in _prioritized_by_time(session, history_stmt, HistoricalPrice.created_at, 80, new_since, strict_new_since):
         pieces.append(
             f"[历史行情] 股票={_stock_label(stocks, price.stock_id)} date={price.trade_date.date()} "
             f"open={price.open} high={price.high} low={price.low} close={price.close} "
             f"volume={price.volume} source={price.source}"
         )
-    for trading in _prioritized_by_time(session, trading_stmt, TradingData.observed_at, 20, new_since):
+    for trading in _prioritized_by_time(session, trading_stmt, TradingData.observed_at, 20, new_since, strict_new_since):
         pieces.append(
             f"[交易数据] 股票={_stock_label(stocks, trading.stock_id)} price={trading.price} pct={trading.change_percent} "
             f"volume={trading.volume} volume_ratio={trading.volume_ratio} volume_signal={trading.volume_signal} "
             f"turnover={trading.turnover} source={trading.source} time={trading.observed_at}"
         )
-    for order in _prioritized_by_time(session, order_stmt, OrderBookSnapshot.observed_at, 10, new_since):
+    for order in _prioritized_by_time(session, order_stmt, OrderBookSnapshot.observed_at, 10, new_since, strict_new_since):
         pieces.append(
             f"[盘口] 股票={_stock_label(stocks, order.stock_id)} source={order.source} time={order.observed_at} "
             f"levels={compact_text(order.levels, 420)}"
         )
-    for flow in _prioritized_by_time(session, institutional_stmt, InstitutionalFlow.observed_at, 20, new_since):
+    for flow in _prioritized_by_time(session, institutional_stmt, InstitutionalFlow.observed_at, 20, new_since, strict_new_since):
         pieces.append(
             f"[机构成本/暗池代理] 股票={_stock_label(stocks, flow.stock_id)} "
             f"vwap_proxy={flow.vwap_proxy} cost_band={flow.cost_low}-{flow.cost_high} "
@@ -269,11 +273,11 @@ def build_context(
             f"sample_days={flow.sample_days} source={flow.source} time={flow.observed_at} "
             f"raw={compact_text(flow.raw_data, 360)}"
         )
-    for item in _prioritized_by_time(session, news_stmt, NewsItem.created_at, 20, new_since):
+    for item in _prioritized_by_time(session, news_stmt, NewsItem.created_at, 20, new_since, strict_new_since):
         pieces.append(f"[新闻] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
-    for item in _prioritized_by_time(session, announcement_stmt, Announcement.created_at, 20, new_since):
+    for item in _prioritized_by_time(session, announcement_stmt, Announcement.created_at, 20, new_since, strict_new_since):
         pieces.append(f"[公告] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
-    for item in _prioritized_by_time(session, macro_stmt, MacroEvent.created_at, 10, new_since):
+    for item in _prioritized_by_time(session, macro_stmt, MacroEvent.created_at, 10, new_since, strict_new_since):
         pieces.append(f"[宏观] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     return "\n".join(pieces) or "暂无本地采集资料。"
 
@@ -308,6 +312,7 @@ def _prioritized_by_time(
     time_column,
     limit: int,
     new_since: datetime | None,
+    strict_new_since: bool = False,
 ) -> list:
     if new_since is None:
         return session.exec(stmt.order_by(col(time_column).desc()).limit(limit)).all()
@@ -315,6 +320,8 @@ def _prioritized_by_time(
     fresh_items = session.exec(
         stmt.where(time_column > new_since).order_by(col(time_column).desc()).limit(limit)
     ).all()
+    if strict_new_since:
+        return fresh_items
     remaining = limit - len(fresh_items)
     if remaining <= 0:
         return fresh_items
