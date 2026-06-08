@@ -2,7 +2,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from datetime import datetime, timezone
 
-from app.models import AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, Stock
+from app.models import AiUsageLog, AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, NewsItem, Stock
 from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
 from app.services.ai import AiResult
 from app.services.collector import (
@@ -91,7 +91,7 @@ class FakeDeepSeekClient:
 
     async def complete(self, user_prompt: str, context: str = "") -> AiResult:
         FakeDeepSeekClient.last_context = context
-        return AiResult(True, "简报正文")
+        return AiResult(True, "简报正文", prompt_tokens=123, completion_tokens=45, total_tokens=168)
 
 
 def test_collect_quotes_triggers_alert() -> None:
@@ -146,6 +146,24 @@ def test_generate_daily_brief_stores_market_scope(monkeypatch) -> None:
         brief = asyncio.run(generate_daily_brief(session, markets={"US"}))
 
         assert brief.scope_key == "markets:US"
+
+
+def test_generate_daily_brief_records_ai_usage(monkeypatch) -> None:
+    import app.services.collector as collector
+
+    monkeypatch.setattr(collector, "DeepSeekClient", FakeDeepSeekClient)
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        asyncio.run(generate_daily_brief(session))
+        item = session.exec(select(AiUsageLog)).first()
+
+        assert item is not None
+        assert item.feature == "brief"
+        assert item.prompt_tokens == 123
+        assert item.completion_tokens == 45
+        assert item.total_tokens == 168
 
 
 def test_generate_daily_brief_can_limit_context_to_latest_24_hours(monkeypatch) -> None:
@@ -287,6 +305,20 @@ def test_build_context_includes_volume_ratio_and_signal() -> None:
         assert "volume_signal=放量" in context
 
 
+def test_build_context_respects_character_budget() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(NewsItem(title="long", source="test", summary="x" * 2000, content_hash="long"))
+        session.commit()
+
+        context = build_context(session, max_chars=300)
+
+        assert len(context) <= 300
+        assert context.endswith("...")
+
+
 def test_build_context_filters_by_mentioned_stock() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
@@ -308,6 +340,28 @@ def test_build_context_filters_by_mentioned_stock() -> None:
 
         assert "GOOGL" in context
         assert "AAPL" not in context
+
+
+def test_build_context_filters_news_by_mentioned_stock() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        googl = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        aapl = Stock(market="US", symbol="AAPL", name="Apple Inc.")
+        session.add(googl)
+        session.add(aapl)
+        session.commit()
+        session.refresh(googl)
+        session.refresh(aapl)
+        session.add(NewsItem(stock_id=googl.id, title="GOOGL volume expands", source="test", content_hash="g"))
+        session.add(NewsItem(stock_id=aapl.id, title="Apple volume expands", source="test", content_hash="a"))
+        session.commit()
+
+        context = build_context(session, query="请分析GOOGL volume")
+
+        assert "GOOGL volume expands" in context
+        assert "Apple volume expands" not in context
 
 
 def test_build_context_filters_by_market_group() -> None:

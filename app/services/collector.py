@@ -8,6 +8,7 @@ from sqlmodel import Session, col, select
 from app.models import (
     AlertEvent,
     AlertRule,
+    AiUsageLog,
     Announcement,
     Brief,
     FetchJobRun,
@@ -22,13 +23,17 @@ from app.models import (
 )
 from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
 from app.presentation import format_beijing_time
-from app.services.ai import DeepSeekClient, build_brief_prompt, needs_chinese_translation
+from app.services.ai import AiResult, DeepSeekClient, TranslationResult, build_brief_prompt, needs_chinese_translation
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
 from app.services.data_sources import MarketDataProvider, NewsProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import get_runtime_config
 from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
+
+
+BRIEF_CONTEXT_CHAR_LIMIT = 16000
+CHAT_CONTEXT_CHAR_LIMIT = 9000
 
 
 def latest_quote(session: Session, stock_id: int) -> MarketQuote | None:
@@ -144,10 +149,12 @@ async def generate_daily_brief(
         markets=markets,
         new_since=latest_since or (previous_brief.generated_at if previous_brief else None),
         strict_new_since=latest_since is not None,
+        max_chars=BRIEF_CONTEXT_CHAR_LIMIT,
     )
     ai = DeepSeekClient(cfg)
     scope = scope_label or ("自选股" if stock_id is None else "个股")
     result = await ai.complete(build_brief_prompt(scope), context)
+    _record_ai_usage(session, "brief", cfg.deepseek_model, result)
     generated_at = datetime.now(timezone.utc)
     generated_time = format_beijing_time(generated_at)
     base_title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
@@ -172,12 +179,13 @@ async def generate_daily_brief(
 async def answer_question(session: Session, question: str) -> str:
     fetch_note = await maybe_fetch_from_question(session, question)
     cfg = get_runtime_config(session)
-    context = build_context(session, None, query=question)
+    context = build_context(session, None, query=question, max_chars=CHAT_CONTEXT_CHAR_LIMIT)
     if fetch_note:
         context = f"{fetch_note}\n{context}"
     result = await DeepSeekClient(cfg).complete(
         f"请回答这个问题：{question}。回答必须引用已有来源；如果资料不足，请明确说明。", context
     )
+    _record_ai_usage(session, "chat", cfg.deepseek_model, result)
     return result.content
 
 
@@ -197,6 +205,7 @@ def build_context(
     markets: set[str] | None = None,
     new_since: datetime | None = None,
     strict_new_since: bool = False,
+    max_chars: int | None = None,
 ) -> str:
     pieces: list[str] = []
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
@@ -238,7 +247,7 @@ def build_context(
         institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id.in_(query_stock_ids))
         news_stmt = news_stmt.where(NewsItem.stock_id.in_(query_stock_ids))
         announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(query_stock_ids))
-    if query:
+    if query and not query_stock_ids:
         like = f"%{query[:40]}%"
         news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like)))
 
@@ -279,7 +288,8 @@ def build_context(
         pieces.append(f"[公告] 股票={_stock_label(stocks, item.stock_id)} {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
     for item in _prioritized_by_time(session, macro_stmt, MacroEvent.created_at, 10, new_since, strict_new_since):
         pieces.append(f"[宏观] {item.source} {item.title} {compact_text(item.summary, 220)} {item.url}")
-    return "\n".join(pieces) or "暂无本地采集资料。"
+    context = "\n".join(pieces) or "暂无本地采集资料。"
+    return compact_text(context, max_chars) if max_chars else context
 
 
 def _brief_scope_key(stock_id: int | None, markets: set[str] | None = None) -> str:
@@ -489,18 +499,53 @@ async def _translate_articles_to_chinese(session: Session, articles: list[Normal
     cfg = get_runtime_config(session)
     if not cfg.deepseek_api_key:
         return articles
+    translation_targets = [
+        (index, article)
+        for index, article in enumerate(articles)
+        if needs_chinese_translation(article.title, article.summary)
+    ]
+    if not translation_targets:
+        return articles
     client = DeepSeekClient(cfg)
-    translated_articles: list[NormalizedArticle] = []
-    for article in articles:
-        if not needs_chinese_translation(article.title, article.summary):
-            translated_articles.append(article)
-            continue
-        result = await client.translate_article_to_chinese(article.title, article.summary)
+    payload = [{"title": article.title, "summary": article.summary} for _, article in translation_targets]
+    results = await client.translate_articles_to_chinese(payload)
+    if results:
+        _record_translation_usage(session, cfg.deepseek_model, results[0])
+    for (index, article), result in zip(translation_targets, results):
         if result.ok:
-            article.title = result.title
-            article.summary = result.summary
-        translated_articles.append(article)
-    return translated_articles
+            articles[index].title = result.title
+            articles[index].summary = result.summary
+    return articles
+
+
+def _record_ai_usage(session: Session, feature: str, model: str, result: AiResult) -> None:
+    session.add(
+        AiUsageLog(
+            feature=feature,
+            model=model,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+            ok=result.ok,
+            error=compact_text(result.error, 500),
+        )
+    )
+    session.commit()
+
+
+def _record_translation_usage(session: Session, model: str, result: TranslationResult) -> None:
+    session.add(
+        AiUsageLog(
+            feature="translation",
+            model=model,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+            ok=result.ok,
+            error=compact_text(result.error, 500),
+        )
+    )
+    session.commit()
 
 
 def _save_articles(

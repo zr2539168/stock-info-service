@@ -20,6 +20,9 @@ class AiResult:
     ok: bool
     content: str
     error: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 @dataclass
@@ -28,6 +31,9 @@ class TranslationResult:
     title: str
     summary: str
     error: str = ""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class DeepSeekClient:
@@ -58,9 +64,10 @@ class DeepSeekClient:
                 response.raise_for_status()
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                return AiResult(True, content)
+                return _ai_result(True, content, "", data, payload)
         except Exception as exc:
-            return AiResult(False, fallback_summary(user_prompt, context), str(exc))
+            content = fallback_summary(user_prompt, context)
+            return _ai_result(False, content, str(exc), {}, payload)
 
     async def complete_json(self, system_prompt: str, user_prompt: str) -> AiResult:
         if not self.config.deepseek_api_key:
@@ -86,7 +93,7 @@ class DeepSeekClient:
                 response.raise_for_status()
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                return AiResult(True, content)
+                return _ai_result(True, content, "", data, payload)
         except Exception as exc:
             return AiResult(False, "", str(exc))
 
@@ -125,9 +132,9 @@ class DeepSeekClient:
                 response.raise_for_status()
                 data = response.json()
                 content = cleanup_chat_title(data["choices"][0]["message"]["content"])
-                return AiResult(True, content or fallback_chat_title(question))
+                return _ai_result(True, content or fallback_chat_title(question), "", data, payload)
         except Exception as exc:
-            return AiResult(False, fallback_chat_title(question), str(exc))
+            return _ai_result(False, fallback_chat_title(question), str(exc), {}, payload)
 
     async def translate_article_to_chinese(self, title: str, summary: str = "") -> TranslationResult:
         if not self.config.deepseek_api_key:
@@ -168,13 +175,86 @@ class DeepSeekClient:
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
                 translated = _parse_translation_json(content)
+                usage = _usage_from_response(data, payload, content)
                 return TranslationResult(
                     True,
                     translated.get("title") or title,
                     translated.get("summary") or summary,
+                    prompt_tokens=usage[0],
+                    completion_tokens=usage[1],
+                    total_tokens=usage[2],
                 )
         except Exception as exc:
             return TranslationResult(False, title, summary, str(exc))
+
+    async def translate_articles_to_chinese(self, articles: list[dict[str, str]]) -> list[TranslationResult]:
+        if not articles:
+            return []
+        if not self.config.deepseek_api_key:
+            return [
+                TranslationResult(False, item.get("title", ""), item.get("summary", ""), "DeepSeek API Key 未配置")
+                for item in articles
+            ]
+
+        payload_items = [
+            {"index": index, "title": item.get("title", ""), "summary": item.get("summary", "")}
+            for index, item in enumerate(articles)
+        ]
+        payload = {
+            "model": self.config.deepseek_model or "deepseek-v4-flash",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "你是财经新闻翻译助手。把输入数组中的标题和摘要翻译成简体中文，"
+                        "保持股票代码、公司名、数字、日期、来源名和专有名词准确。"
+                        "只返回 JSON，不要 Markdown，不要解释。"
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "请翻译以下 JSON 数组，返回格式必须是："
+                        '{"items":[{"index":0,"title":"中文标题","summary":"中文摘要"}]}\n'
+                        f"{json.dumps({'items': payload_items}, ensure_ascii=False)}"
+                    ),
+                },
+            ],
+            "temperature": 0.1,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.deepseek_api_key}",
+            "Content-Type": "application/json",
+        }
+        base_url = self.config.deepseek_base_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                usage = _usage_from_response(data, payload, content)
+                translated = _parse_batch_translation_json(content)
+                by_index = {item["index"]: item for item in translated}
+                results: list[TranslationResult] = []
+                for index, source in enumerate(articles):
+                    item = by_index.get(index, {})
+                    results.append(
+                        TranslationResult(
+                            True,
+                            item.get("title") or source.get("title", ""),
+                            item.get("summary") or source.get("summary", ""),
+                            prompt_tokens=usage[0] if index == 0 else 0,
+                            completion_tokens=usage[1] if index == 0 else 0,
+                            total_tokens=usage[2] if index == 0 else 0,
+                        )
+                    )
+                return results
+        except Exception as exc:
+            return [
+                TranslationResult(False, item.get("title", ""), item.get("summary", ""), str(exc))
+                for item in articles
+            ]
 
 
 def build_brief_prompt(scope: str) -> str:
@@ -216,6 +296,32 @@ def needs_chinese_translation(title: str, summary: str = "") -> bool:
     return latin >= 12 and cjk * 2 < latin
 
 
+def estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    ascii_chars = sum(1 for char in text if ord(char) < 128)
+    other_chars = len(text) - ascii_chars
+    return max(1, round(ascii_chars / 4 + other_chars / 1.8))
+
+
+def _ai_result(ok: bool, content: str, error: str, data: dict, payload: dict) -> AiResult:
+    prompt_tokens, completion_tokens, total_tokens = _usage_from_response(data, payload, content)
+    return AiResult(ok, content, error, prompt_tokens, completion_tokens, total_tokens)
+
+
+def _usage_from_response(data: dict, payload: dict, content: str) -> tuple[int, int, int]:
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if isinstance(usage, dict):
+        prompt = int(usage.get("prompt_tokens") or 0)
+        completion = int(usage.get("completion_tokens") or 0)
+        total = int(usage.get("total_tokens") or prompt + completion)
+        return prompt, completion, total
+    prompt_text = json.dumps(payload.get("messages", []), ensure_ascii=False)
+    prompt = estimate_tokens(prompt_text)
+    completion = estimate_tokens(content)
+    return prompt, completion, prompt + completion
+
+
 def _parse_translation_json(content: str) -> dict[str, str]:
     text = (content or "").strip()
     try:
@@ -232,3 +338,30 @@ def _parse_translation_json(content: str) -> dict[str, str]:
         "title": str(parsed.get("title") or ""),
         "summary": str(parsed.get("summary") or ""),
     }
+
+
+def _parse_batch_translation_json(content: str) -> list[dict[str, str | int]]:
+    text = (content or "").strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        parsed = json.loads(text[start : end + 1])
+    items = parsed.get("items") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("Batch translation response does not include items")
+    result: list[dict[str, str | int]] = []
+    for fallback_index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "index": int(item.get("index") if item.get("index") is not None else fallback_index),
+                "title": str(item.get("title") or ""),
+                "summary": str(item.get("summary") or ""),
+            }
+        )
+    return result

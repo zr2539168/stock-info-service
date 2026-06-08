@@ -17,6 +17,12 @@ class FakeNewsProvider:
                 source="Yahoo Finance",
                 summary="Shares climbed after stronger iPhone revenue.",
                 url="https://example.com/aapl",
+            ),
+            NormalizedArticle(
+                title="Nvidia falls as traders take profit",
+                source="Yahoo Finance",
+                summary="Chip stocks were mixed.",
+                url="https://example.com/nvda",
             )
         ]
 
@@ -40,7 +46,12 @@ def test_collect_news_translates_english_articles_before_saving() -> None:
                         "choices": [
                             {
                                 "message": {
-                                    "content": '{"title":"苹果财报超预期后上涨","summary":"iPhone 收入强劲推动股价走高。"}'
+                                    "content": (
+                                        '{"items":['
+                                        '{"title":"苹果财报超预期后上涨","summary":"iPhone 收入强劲推动股价走高。"},'
+                                        '{"title":"英伟达获利回吐下跌","summary":"芯片股涨跌互现。"}'
+                                        "]}"
+                                    )
                                 }
                             }
                         ]
@@ -49,9 +60,10 @@ def test_collect_news_translates_english_articles_before_saving() -> None:
             )
             count = asyncio.run(collect_news(session, FakeNewsProvider()))
 
-        item = session.exec(select(NewsItem)).first()
+            assert len(router.calls) == 1
 
-        assert count == 1
-        assert item is not None
-        assert item.title == "苹果财报超预期后上涨"
-        assert item.summary == "iPhone 收入强劲推动股价走高。"
+        items = session.exec(select(NewsItem).order_by(NewsItem.url)).all()
+
+        assert count == 2
+        assert [item.title for item in items] == ["苹果财报超预期后上涨", "英伟达获利回吐下跌"]
+        assert [item.summary for item in items] == ["iPhone 收入强劲推动股价走高。", "芯片股涨跌互现。"]

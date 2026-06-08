@@ -177,6 +177,18 @@ class FetchJobRun(SQLModel, table=True):
     error: str = Field(default="")
 
 
+class AiUsageLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    feature: str = Field(index=True, max_length=64)
+    model: str = Field(default="", max_length=128)
+    prompt_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    total_tokens: int = Field(default=0)
+    ok: bool = Field(default=True)
+    error: str = Field(default="")
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True, max_length=128)
     value: str = Field(default="")
