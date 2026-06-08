@@ -3,15 +3,17 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from datetime import datetime, timezone
 
 from app.models import AiUsageLog, AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, NewsItem, Stock
-from app.schemas import NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
+from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
 from app.services.ai import AiResult
 from app.services.collector import (
     build_context,
     collect_market_details,
+    collect_news,
     collect_quotes,
     generate_daily_brief,
     push_pending_alert_events,
 )
+from app.services.content import content_hash
 
 import asyncio
 
@@ -70,6 +72,16 @@ class FakeTradingAlertProvider:
 
     def fetch_institutional_flow(self, market: str, symbol: str):
         return None
+
+
+class CountingNewsProvider:
+    def __init__(self, articles=None) -> None:
+        self.calls = 0
+        self.articles = articles or []
+
+    async def fetch_stock_news(self, stock: Stock):
+        self.calls += 1
+        return list(self.articles)
 
 
 class FakePushClient:
@@ -466,6 +478,68 @@ def test_collect_market_details_can_trigger_volume_alert_from_trading_data() -> 
 
         assert event is not None
         assert "volume" in event.message
+
+
+def test_collect_news_skips_recently_collected_stock_news() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        session.add(
+            NewsItem(
+                stock_id=stock.id,
+                title="recent",
+                source="test",
+                content_hash="recent",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        session.commit()
+        provider = CountingNewsProvider()
+
+        count = asyncio.run(collect_news(session, provider))
+
+        assert count == 0
+        assert provider.calls == 0
+
+
+def test_collect_news_deduplicates_existing_articles_before_saving() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        stock = Stock(market="US", symbol="GOOGL", name="Alphabet Inc.")
+        session.add(stock)
+        session.commit()
+        session.refresh(stock)
+        session.add(
+            NewsItem(
+                stock_id=stock.id,
+                title="old duplicate",
+                source="test",
+                url="https://example.com/old",
+                content_hash=content_hash(str(stock.id), "https://example.com/old"),
+                created_at=datetime(2026, 6, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+        provider = CountingNewsProvider(
+            [
+                NormalizedArticle(title="old duplicate", source="test", url="https://example.com/old"),
+                NormalizedArticle(title="fresh", source="test", url="https://example.com/new"),
+            ]
+        )
+
+        count = asyncio.run(collect_news(session, provider))
+        items = session.exec(select(NewsItem).order_by(NewsItem.url)).all()
+
+        assert count == 1
+        assert provider.calls == 1
+        assert [item.url for item in items] == ["https://example.com/new", "https://example.com/old"]
 
 
 def test_push_pending_alert_events_marks_events_pushed() -> None:

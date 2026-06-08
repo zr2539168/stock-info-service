@@ -34,6 +34,10 @@ from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
 
 BRIEF_CONTEXT_CHAR_LIMIT = 16000
 CHAT_CONTEXT_CHAR_LIMIT = 9000
+NEWS_REFRESH_INTERVAL = timedelta(hours=1)
+ANNOUNCEMENT_REFRESH_INTERVAL = timedelta(hours=6)
+MACRO_REFRESH_INTERVAL = timedelta(hours=1)
+INSTITUTIONAL_REFRESH_INTERVAL = timedelta(hours=6)
 
 
 def latest_quote(session: Session, stock_id: int) -> MarketQuote | None:
@@ -82,10 +86,17 @@ async def collect_market_details(session: Session, provider: MarketDataProvider 
         if order_book:
             session.add(_order_book_to_model(stock.id or 0, order_book))
             count += 1
-        institutional = provider.fetch_institutional_flow(stock.market, stock.symbol)
-        if institutional:
-            session.add(_institutional_to_model(stock.id or 0, institutional))
-            count += 1
+        if not _has_recent_record(
+            session,
+            InstitutionalFlow,
+            INSTITUTIONAL_REFRESH_INTERVAL,
+            stock_id=stock.id,
+            time_column=InstitutionalFlow.observed_at,
+        ):
+            institutional = provider.fetch_institutional_flow(stock.market, stock.symbol)
+            if institutional:
+                session.add(_institutional_to_model(stock.id or 0, institutional))
+                count += 1
     session.commit()
     await evaluate_alerts(session)
     return count
@@ -96,7 +107,10 @@ async def collect_news(session: Session, provider: NewsProvider | None = None) -
     count = 0
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
     for stock in stocks:
+        if _has_recent_record(session, NewsItem, NEWS_REFRESH_INTERVAL, stock_id=stock.id):
+            continue
         articles = await provider.fetch_stock_news(stock)
+        articles = _new_articles(session, articles, NewsItem, stock_id=stock.id)
         articles = await _translate_articles_to_chinese(session, articles)
         count += _save_articles(session, articles, NewsItem, stock_id=stock.id)
     await evaluate_alerts(session)
@@ -108,7 +122,10 @@ async def collect_announcements(session: Session, provider: NewsProvider | None 
     count = 0
     stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
     for stock in stocks:
+        if _has_recent_record(session, Announcement, ANNOUNCEMENT_REFRESH_INTERVAL, stock_id=stock.id):
+            continue
         articles = await provider.fetch_announcements(stock)
+        articles = _new_articles(session, articles, Announcement, stock_id=stock.id)
         articles = await _translate_articles_to_chinese(session, articles)
         count += _save_articles(session, articles, Announcement, stock_id=stock.id)
     return count
@@ -116,7 +133,10 @@ async def collect_announcements(session: Session, provider: NewsProvider | None 
 
 async def collect_macro(session: Session, provider: NewsProvider | None = None) -> int:
     provider = provider or NewsProvider()
+    if _has_recent_record(session, MacroEvent, MACRO_REFRESH_INTERVAL):
+        return 0
     articles = await provider.fetch_macro()
+    articles = _new_articles(session, articles, MacroEvent)
     articles = await _translate_articles_to_chinese(session, articles)
     return _save_articles(session, articles, MacroEvent)
 
@@ -493,6 +513,41 @@ def _institutional_to_model(stock_id: int, flow: NormalizedInstitutionalFlow) ->
     )
 
 
+def _has_recent_record(
+    session: Session,
+    model_type,
+    interval: timedelta,
+    stock_id: int | None = None,
+    time_column=None,
+) -> bool:
+    cutoff = datetime.now(timezone.utc) - interval
+    time_column = time_column or getattr(model_type, "created_at")
+    stmt = select(model_type).where(time_column >= cutoff)
+    if stock_id is not None and hasattr(model_type, "stock_id"):
+        stmt = stmt.where(model_type.stock_id == stock_id)
+    return session.exec(stmt.limit(1)).first() is not None
+
+
+def _new_articles(
+    session: Session,
+    articles: list[NormalizedArticle],
+    model_type: type[NewsItem] | type[Announcement] | type[MacroEvent],
+    stock_id: int | None = None,
+) -> list[NormalizedArticle]:
+    result: list[NormalizedArticle] = []
+    seen: set[str] = set()
+    for article in articles:
+        digest = _article_digest(article, stock_id)
+        if digest in seen:
+            continue
+        seen.add(digest)
+        exists = session.exec(select(model_type).where(model_type.content_hash == digest)).first()
+        if exists:
+            continue
+        result.append(article)
+    return result
+
+
 async def _translate_articles_to_chinese(session: Session, articles: list[NormalizedArticle]) -> list[NormalizedArticle]:
     if not articles:
         return articles
@@ -516,6 +571,11 @@ async def _translate_articles_to_chinese(session: Session, articles: list[Normal
             articles[index].title = result.title
             articles[index].summary = result.summary
     return articles
+
+
+def _article_digest(article: NormalizedArticle, stock_id: int | None = None) -> str:
+    identity = (article.url or "").strip() or (article.title or "").strip()
+    return content_hash(str(stock_id or ""), identity)
 
 
 def _record_ai_usage(session: Session, feature: str, model: str, result: AiResult) -> None:
@@ -556,7 +616,7 @@ def _save_articles(
 ) -> int:
     count = 0
     for article in articles:
-        digest = content_hash(str(stock_id or ""), article.title, article.url)
+        digest = _article_digest(article, stock_id)
         exists = session.exec(select(model_type).where(model_type.content_hash == digest)).first()
         if exists:
             continue
