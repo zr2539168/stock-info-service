@@ -26,7 +26,7 @@ if (Test-Path $PidFile) {
     Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-if ($ByPort -and -not $stopped) {
+if ($ByPort -or $stopped) {
     $listeners = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($listener in $listeners) {
         Write-Host "Stopping process $($listener.OwningProcess) listening on port $Port"
