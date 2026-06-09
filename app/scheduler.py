@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine
+from app.models import FetchJobRun
 from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
 from app.services.market_calendar import is_market_trading_day
 from app.services.settings_service import (
+    cron_to_workday_time,
     get_collection_settings,
     get_daily_noon_brief_settings,
     get_market_open_brief_settings,
@@ -121,6 +125,7 @@ def _run_collect_all_job() -> None:
         try:
             asyncio.run(collect_all_information(session))
             asyncio.run(push_pending_alert_events(session))
+            _run_due_market_open_briefs_after_collection(session)
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
@@ -204,3 +209,85 @@ def _acquire_collection_lock(run, session: Session, wait_seconds: float | None =
 
 def _should_collect_before_brief(waited_for_collection: bool) -> bool:
     return not waited_for_collection
+
+
+def _run_due_market_open_briefs_after_collection(session: Session) -> None:
+    enabled, cn_cron, us_cron = get_market_open_brief_settings(session)
+    if not enabled:
+        return
+
+    now = datetime.now(timezone.utc)
+    due_jobs = [
+        ("CN", {"CN", "HK"}, "A股/港股盘中", cn_cron, "cn_open_brief"),
+        ("US", {"US"}, "美股盘中", us_cron, "us_open_brief"),
+    ]
+    for market, markets, label, cron, job_name in due_jobs:
+        if _market_open_brief_is_due(session, market=market, cron=cron, job_name=job_name, now=now):
+            _generate_market_open_brief_after_collection(session, market, markets, label, job_name)
+
+
+def _generate_market_open_brief_after_collection(
+    session: Session,
+    market: str,
+    markets: set[str],
+    label: str,
+    job_name: str,
+) -> None:
+    run = start_job(session, job_name)
+    try:
+        if not is_market_trading_day(market):
+            finish_job(session, run, "skipped", f"{market} market is closed")
+            return
+        asyncio.run(generate_daily_brief(session, push=True, scope_label=label, markets=markets))
+        finish_job(session, run, "success")
+    except Exception as exc:
+        finish_job(session, run, "failed", str(exc))
+
+
+def _market_open_brief_is_due(
+    session: Session,
+    *,
+    market: str,
+    cron: str,
+    job_name: str,
+    now: datetime | None = None,
+) -> bool:
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    market_tz = _market_timezone(market)
+    now_local = now_utc.astimezone(market_tz)
+    if not is_market_trading_day(market, now_local):
+        return False
+
+    due_time = _market_open_brief_time(cron)
+    if due_time is None or now_local.time() < due_time:
+        return False
+
+    day_start_local = datetime.combine(now_local.date(), time.min, tzinfo=market_tz)
+    day_end_local = datetime.combine(now_local.date(), time.max, tzinfo=market_tz)
+    day_start_utc = day_start_local.astimezone(timezone.utc)
+    day_end_utc = day_end_local.astimezone(timezone.utc)
+    existing = session.exec(
+        select(FetchJobRun).where(
+            FetchJobRun.job_name == job_name,
+            FetchJobRun.status.in_(("running", "success")),
+            FetchJobRun.started_at >= day_start_utc,
+            FetchJobRun.started_at <= day_end_utc,
+        )
+    ).first()
+    return existing is None
+
+
+def _market_open_brief_time(cron: str) -> time | None:
+    value = cron_to_workday_time(cron)
+    if not value:
+        return None
+    hour, minute = (int(part) for part in value.split(":", 1))
+    return time(hour, minute)
+
+
+def _market_timezone(market: str) -> ZoneInfo:
+    if market == "US":
+        return ZoneInfo("America/New_York")
+    return ZoneInfo("Asia/Shanghai")

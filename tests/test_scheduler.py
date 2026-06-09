@@ -1,4 +1,11 @@
+from datetime import datetime, timezone
+
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, SQLModel, create_engine
+
+from app.models import FetchJobRun
 from app.scheduler import (
+    _market_open_brief_is_due,
     _should_collect_before_brief,
     build_scheduler,
     configure_collection_job,
@@ -92,3 +99,69 @@ def test_market_open_brief_jobs_can_be_reconfigured() -> None:
     assert "hour='10'" in us_trigger
     assert "minute='45'" in us_trigger
     assert "day_of_week='1-5'" in us_trigger
+
+
+def test_us_market_open_brief_is_due_after_open_time_when_not_run_today() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        due = _market_open_brief_is_due(
+            session,
+            market="US",
+            cron="0 10 * * 1-5",
+            job_name="us_open_brief",
+            now=datetime(2026, 6, 8, 14, 5, tzinfo=timezone.utc),
+        )
+
+    assert due
+
+
+def test_us_market_open_brief_is_not_due_when_already_successful_today() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(
+            FetchJobRun(
+                job_name="us_open_brief",
+                status="success",
+                started_at=datetime(2026, 6, 8, 14, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        due = _market_open_brief_is_due(
+            session,
+            market="US",
+            cron="0 10 * * 1-5",
+            job_name="us_open_brief",
+            now=datetime(2026, 6, 8, 14, 5, tzinfo=timezone.utc),
+        )
+
+    assert not due
+
+
+def test_failed_market_open_brief_can_be_retried_today() -> None:
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        session.add(
+            FetchJobRun(
+                job_name="us_open_brief",
+                status="failed",
+                started_at=datetime(2026, 6, 8, 14, 1, tzinfo=timezone.utc),
+            )
+        )
+        session.commit()
+
+        due = _market_open_brief_is_due(
+            session,
+            market="US",
+            cron="0 10 * * 1-5",
+            job_name="us_open_brief",
+            now=datetime(2026, 6, 8, 14, 5, tzinfo=timezone.utc),
+        )
+
+    assert due
