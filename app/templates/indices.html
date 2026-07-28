@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1>市场指数</h1>
+    <p>跟踪股票情绪、股票波动率、债券波动率与美国长期利率，历史图默认展示最近一年日线。</p>
+  </div>
+  <div class="index-page-actions">
+    <form class="page-actions" method="post" action="/jobs/run/indices?redirect_url=/indices" data-progress="正在更新市场指数">
+      <button type="submit" {% if collection_running %}disabled{% endif %}>
+        {% if collection_running %}后台正在抓取信息{% else %}更新指数{% endif %}
+      </button>
+    </form>
+    <form class="page-actions" method="post" action="/indices/analyze" data-progress="正在生成指数 AI 分析">
+      <button type="submit">AI 简要分析</button>
+    </form>
+  </div>
+</header>
+
+<section class="panel index-range-toolbar" aria-label="走势图时间区间">
+  <strong>时间区间</strong>
+  <div class="index-range-options" role="group" aria-label="所有指数走势图的时间区间">
+    <button type="button" class="ghost" data-index-range="7d" aria-pressed="false">一周</button>
+    <button type="button" class="ghost" data-index-range="30d" aria-pressed="false">一月</button>
+    <button type="button" class="ghost active" data-index-range="1y" aria-pressed="true">一年</button>
+    <button type="button" class="ghost" data-index-range="10y" aria-pressed="false">十年</button>
+    <button type="button" class="ghost" data-index-range="max" aria-pressed="false">成立以来</button>
+  </div>
+  <span class="muted">该选择会同时应用到下方四张走势图。</span>
+</section>
+
+<section class="indices-grid">
+  {% for card in cards %}
+    {% set definition = card.definition %}
+    <article class="panel index-card">
+      <div class="index-card-head">
+        <div>
+          <p class="index-symbol">{{ definition.symbol }}</p>
+          <h2>{{ definition.name }}</h2>
+        </div>
+        {% if card.latest and card.latest.status %}<span class="index-status">{{ card.latest.status }}</span>{% endif %}
+      </div>
+
+      {% if card.latest %}
+        <div class="index-value-row">
+          <strong class="index-value">{{ "%.2f" | format(card.latest.value) }}{% if definition.unit %}<small>{{ definition.unit }}</small>{% endif %}</strong>
+          {% if card.change is not none %}
+            <span class="index-change {% if card.change > 0 %}up{% elif card.change < 0 %}down{% endif %}">
+              较前一交易日 {{ "%+.2f" | format(card.change) }}
+            </span>
+          {% endif %}
+        </div>
+        <p class="index-updated">
+          数据时间：{{ card.latest.observed_at | beijing_time }} · 抓取于 {{ card.latest.collected_at | beijing_time }} · {{ card.latest.source }}
+        </p>
+      {% else %}
+        <div class="index-empty">暂无数据，请先点击“更新指数”。</div>
+      {% endif %}
+
+      <div class="index-chart-wrap">
+        <canvas class="index-chart" data-index-chart="index-series-{{ definition.code }}" aria-label="{{ definition.name }}历史走势图"></canvas>
+        <script type="application/json" id="index-series-{{ definition.code }}">{{ card.series | tojson }}</script>
+      </div>
+
+      <p class="index-description">{{ definition.description }}</p>
+      <a class="index-source" href="{{ definition.source_url }}" target="_blank" rel="noopener noreferrer">查看数据来源</a>
+    </article>
+  {% endfor %}
+</section>
+
+<section class="panel index-analysis">
+  <div class="section-head">
+    <h2>AI 指数分析</h2>
+    {% if analysis %}<time>生成于 {{ analysis.generated_at | beijing_time }}</time>{% endif %}
+  </div>
+  {% if analysis %}
+    <div class="markdown-body">{{ analysis.content | markdown }}</div>
+  {% else %}
+    <p class="muted">点击“AI 简要分析”，将根据四项指数的最新值、近一周和近一月走势生成综合解读。</p>
+  {% endif %}
+</section>
+{% endblock %}

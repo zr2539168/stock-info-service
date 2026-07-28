@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
 import json
+import math
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable
 from xml.etree import ElementTree
@@ -12,6 +15,7 @@ from app.schemas import (
     NormalizedArticle,
     NormalizedHistoricalPrice,
     NormalizedInstitutionalFlow,
+    NormalizedMarketIndex,
     NormalizedOrderBook,
     NormalizedQuote,
     NormalizedTradingData,
@@ -30,6 +34,79 @@ DEFAULT_MACRO_FEEDS = [
     ("Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
     ("SEC Latest Filings", "https://www.sec.gov/news/pressreleases.rss"),
 ]
+
+
+@dataclass(frozen=True)
+class MarketIndexDefinition:
+    code: str
+    name: str
+    symbol: str
+    unit: str
+    description: str
+    source: str
+    source_url: str
+
+
+MARKET_INDEX_DEFINITIONS = (
+    MarketIndexDefinition(
+        code="fear_greed",
+        name="恐贪指数",
+        symbol="Fear & Greed Index",
+        unit="",
+        description="CNN 综合市场动量、强弱、波动率、避险需求等七项指标形成的 0–100 市场情绪分数。数值越低越恐惧，越高越贪婪。",
+        source="CNN",
+        source_url="https://www.cnn.com/markets/fear-and-greed",
+    ),
+    MarketIndexDefinition(
+        code="vix",
+        name="标普 500 恐慌指数",
+        symbol="VIX",
+        unit="",
+        description="基于标普 500 指数期权价格计算的未来 30 天预期波动率。通常数值快速上升代表股票市场避险情绪增强。",
+        source="Yahoo Finance / Cboe",
+        source_url="https://www.cboe.com/tradable_products/vix/",
+    ),
+    MarketIndexDefinition(
+        code="move",
+        name="债券市场恐慌指数",
+        symbol="MOVE",
+        unit="",
+        description="衡量美国国债期权隐含波动率的指标，常被称为债券市场的 VIX。数值上升通常代表利率和债券市场不确定性增加。",
+        source="Yahoo Finance / ICE BofA",
+        source_url="https://finance.yahoo.com/quote/%5EMOVE/",
+    ),
+    MarketIndexDefinition(
+        code="us10y",
+        name="美国 10 年期国债收益率",
+        symbol="10Y Treasury",
+        unit="%",
+        description="美国 10 年期国债市场收益率，是全球资产定价和长期融资成本的重要参考。上升通常意味着长期利率环境趋紧。",
+        source="Yahoo Finance / U.S. Treasury",
+        source_url="https://home.treasury.gov/resource-center/data-chart-center/interest-rates/",
+    ),
+)
+
+YFINANCE_INDEX_SYMBOLS = {
+    "vix": "^VIX",
+    "move": "^MOVE",
+    "us10y": "^TNX",
+}
+
+CNN_FEAR_GREED_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+CNN_FEAR_GREED_ARCHIVE_URL = "https://raw.githubusercontent.com/whit3rabbit/fear-greed-data/main/fear-greed.csv"
+CNN_FEAR_GREED_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.cnn.com/markets/fear-and-greed",
+    "Origin": "https://www.cnn.com",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-site",
+}
 
 def _u(*codes: int) -> str:
     return "".join(chr(code) for code in codes)
@@ -388,6 +465,140 @@ class StockIdentityProvider:
             return None
 
 
+class MarketIndexProvider:
+    def __init__(self, timeout: float = 15.0) -> None:
+        self.timeout = timeout
+
+    def fetch_indices(self, full_history: bool = False) -> list[NormalizedMarketIndex]:
+        points = self._fetch_cnn_fear_greed(full_history=full_history)
+        for code, symbol in YFINANCE_INDEX_SYMBOLS.items():
+            points.extend(self._fetch_yfinance_index(code, symbol, full_history=full_history))
+        return points
+
+    def _fetch_cnn_fear_greed(self, full_history: bool = False) -> list[NormalizedMarketIndex]:
+        definition = _market_index_definition("fear_greed")
+        points = self._fetch_cnn_fear_greed_archive(definition) if full_history else []
+        try:
+            response = httpx.get(
+                CNN_FEAR_GREED_URL,
+                headers=CNN_FEAR_GREED_HEADERS,
+                timeout=self.timeout,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return points
+
+        historical = payload.get("fear_and_greed_historical") or {}
+        for item in historical.get("data") or []:
+            value = _float_or_none(item.get("y")) if isinstance(item, dict) else None
+            timestamp = _float_or_none(item.get("x")) if isinstance(item, dict) else None
+            if value is None or timestamp is None or not math.isfinite(value):
+                continue
+            points.append(
+                NormalizedMarketIndex(
+                    code=definition.code,
+                    name=definition.name,
+                    value=value,
+                    observed_at=datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc),
+                    status=_fear_greed_status(str(item.get("rating") or ""), value),
+                    source=definition.source,
+                )
+            )
+
+        latest = payload.get("fear_and_greed") or {}
+        latest_value = _float_or_none(latest.get("score")) if isinstance(latest, dict) else None
+        latest_time = _parse_datetime(latest.get("timestamp")) if isinstance(latest, dict) else None
+        if latest_value is not None and latest_time is not None and math.isfinite(latest_value):
+            points.append(
+                NormalizedMarketIndex(
+                    code=definition.code,
+                    name=definition.name,
+                    value=latest_value,
+                    observed_at=latest_time,
+                    status=_fear_greed_status(str(latest.get("rating") or ""), latest_value),
+                    source=definition.source,
+                )
+            )
+        return points
+
+    def _fetch_cnn_fear_greed_archive(
+        self, definition: MarketIndexDefinition
+    ) -> list[NormalizedMarketIndex]:
+        try:
+            response = httpx.get(
+                CNN_FEAR_GREED_ARCHIVE_URL,
+                headers={"User-Agent": "stock-info-service/0.1", "Accept": "text/csv"},
+                timeout=self.timeout,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            rows = csv.DictReader(response.text.splitlines())
+            points = []
+            for row in rows:
+                value = _float_or_none(row.get("Fear Greed"))
+                observed_at = _to_utc_datetime(row.get("Date"))
+                if value is None or observed_at is None or not math.isfinite(value):
+                    continue
+                points.append(
+                    NormalizedMarketIndex(
+                        code=definition.code,
+                        name=definition.name,
+                        value=value,
+                        observed_at=observed_at,
+                        status=_fear_greed_status(str(row.get("Rating") or ""), value),
+                        source="CNN / historical archive",
+                    )
+                )
+            return points
+        except Exception:
+            return []
+
+    def _fetch_yfinance_index(
+        self, code: str, symbol: str, full_history: bool = False
+    ) -> list[NormalizedMarketIndex]:
+        definition = _market_index_definition(code)
+        try:
+            import yfinance as yf  # type: ignore
+
+            ticker = yf.Ticker(symbol)
+        except Exception:
+            return []
+
+        frames = []
+        try:
+            frames.append(
+                ticker.history(period="max" if full_history else "1y", interval="1d", auto_adjust=False)
+            )
+        except Exception:
+            pass
+        try:
+            # Yahoo occasionally omits the newest MOVE observations from long-range queries.
+            frames.append(ticker.history(period="5d", interval="1d", auto_adjust=False))
+        except Exception:
+            pass
+
+        by_time: dict[datetime, NormalizedMarketIndex] = {}
+        for frame in frames:
+            if frame is None or frame.empty:
+                continue
+            for index, row in frame.iterrows():
+                value = _float_or_none(row.get("Close"))
+                observed_at = _to_utc_datetime(index)
+                if value is None or observed_at is None or not math.isfinite(value):
+                    continue
+                by_time[observed_at] = NormalizedMarketIndex(
+                    code=definition.code,
+                    name=definition.name,
+                    value=value,
+                    observed_at=observed_at,
+                    unit=definition.unit,
+                    source=definition.source,
+                )
+        return list(by_time.values())
+
+
 class NewsProvider:
     def __init__(self, timeout: float = 12.0) -> None:
         self.timeout = timeout
@@ -697,6 +908,51 @@ def _parse_datetime(value: object) -> datetime | None:
         except ValueError:
             continue
     return datetime.now(timezone.utc)
+
+
+def _to_utc_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        result = value
+    else:
+        to_pydatetime = getattr(value, "to_pydatetime", None)
+        if not callable(to_pydatetime):
+            result = _parse_datetime(value)
+            if result is None:
+                return None
+        else:
+            result = to_pydatetime()
+    if result.tzinfo is None:
+        return result.replace(tzinfo=timezone.utc)
+    return result.astimezone(timezone.utc)
+
+
+def _market_index_definition(code: str) -> MarketIndexDefinition:
+    for definition in MARKET_INDEX_DEFINITIONS:
+        if definition.code == code:
+            return definition
+    raise KeyError(code)
+
+
+def _fear_greed_status(rating: str, value: float) -> str:
+    normalized = rating.strip().lower().replace("_", " ")
+    labels = {
+        "extreme fear": "极度恐惧",
+        "fear": "恐惧",
+        "neutral": "中性",
+        "greed": "贪婪",
+        "extreme greed": "极度贪婪",
+    }
+    if normalized in labels:
+        return labels[normalized]
+    if value <= 25:
+        return "极度恐惧"
+    if value <= 45:
+        return "恐惧"
+    if value <= 55:
+        return "中性"
+    if value <= 75:
+        return "贪婪"
+    return "极度贪婪"
 
 
 def _float_or_none(value: object) -> float | None:

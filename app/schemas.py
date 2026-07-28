@@ -70,6 +70,17 @@ class NormalizedInstitutionalFlow:
 
 
 @dataclass
+class NormalizedMarketIndex:
+    code: str
+    name: str
+    value: float
+    observed_at: datetime
+    unit: str = ""
+    status: str = ""
+    source: str = ""
+
+
+@dataclass
 class ResolvedStock:
     market: str
     symbol: str

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from threading import Thread
 from urllib.parse import urlencode
 
@@ -26,6 +27,8 @@ from app.models import (
     HistoricalPrice,
     InstitutionalFlow,
     MacroEvent,
+    MarketIndexAnalysis,
+    MarketIndexPoint,
     MarketQuote,
     NewsItem,
     OrderBookSnapshot,
@@ -48,14 +51,16 @@ from app.services.collector import (
     collect_announcements,
     collect_macro,
     collect_market_details,
+    collect_market_indices,
     collect_news,
     collect_quotes,
     finish_job,
     generate_daily_brief,
+    generate_market_index_analysis,
     push_pending_alert_events,
     start_job,
 )
-from app.services.data_sources import StockIdentityProvider
+from app.services.data_sources import MARKET_INDEX_DEFINITIONS, StockIdentityProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
 from app.services.settings_service import all_settings, daily_time_to_cron, get_runtime_config, set_setting, workday_time_to_cron
@@ -66,6 +71,10 @@ templates.env.filters["markdown"] = render_markdown
 templates.env.filters["beijing_time"] = format_beijing_time
 templates.env.filters["clean_text"] = clean_text
 templates.env.filters["stock_refs"] = replace_stock_refs
+templates.env.globals["asset_version"] = lambda: max(
+    Path("app/static/styles.css").stat().st_mtime_ns,
+    Path("app/static/app.js").stat().st_mtime_ns,
+)
 scheduler = build_scheduler()
 stock_identity_provider = StockIdentityProvider()
 
@@ -184,6 +193,62 @@ def toggle_stock(stock_id: int, session: Session = Depends(get_session)):
         session.add(stock)
         session.commit()
     return redirect("/watchlist")
+
+
+@app.get("/indices", response_class=HTMLResponse)
+def market_indices(request: Request, session: Session = Depends(get_session)):
+    cards = []
+    for definition in MARKET_INDEX_DEFINITIONS:
+        raw_points = session.exec(
+            select(MarketIndexPoint)
+            .where(MarketIndexPoint.index_code == definition.code)
+            .order_by(col(MarketIndexPoint.observed_at).desc())
+        ).all()
+        daily_points = _daily_index_points(list(reversed(raw_points)))
+        latest = raw_points[0] if raw_points else None
+        previous = daily_points[-2] if len(daily_points) > 1 else None
+        cards.append(
+            {
+                "definition": definition,
+                "latest": latest,
+                "change": (latest.value - previous.value) if latest is not None and previous is not None else None,
+                "series": [
+                    {
+                        "date": point.observed_at.date().isoformat(),
+                        "value": round(point.value, 4),
+                    }
+                    for point in daily_points
+                ],
+            }
+        )
+    analysis = session.exec(
+        select(MarketIndexAnalysis).order_by(col(MarketIndexAnalysis.generated_at).desc()).limit(1)
+    ).first()
+    return templates.TemplateResponse(
+        request,
+        "indices.html",
+        {
+            "cards": cards,
+            "analysis": analysis,
+            "collection_running": is_collection_running(session),
+        },
+    )
+
+
+@app.post("/indices/analyze")
+async def analyze_market_indices(request: Request, session: Session = Depends(get_session)):
+    async def action(job_session: Session) -> None:
+        await generate_market_index_analysis(job_session)
+
+    if is_progress_request(request):
+        run = start_background_job("manual_index_analysis", action, use_collection_lock=False)
+        return {"job_id": run.id, "redirect_url": "/indices"}
+
+    async def inline_action() -> None:
+        await generate_market_index_analysis(session)
+
+    await run_tracked_job(session, "manual_index_analysis", inline_action, use_collection_lock=False)
+    return redirect("/indices")
 
 
 @app.post("/watchlist/{stock_id}/delete")
@@ -556,6 +621,8 @@ async def run_job(job_name: str, request: Request, session: Session = Depends(ge
             await collect_announcements(job_session)
         elif job_name == "macro":
             await collect_macro(job_session)
+        elif job_name == "indices":
+            await collect_market_indices(job_session)
         elif job_name == "all":
             await collect_all_information(job_session)
             await push_pending_alert_events(job_session)
@@ -563,7 +630,7 @@ async def run_job(job_name: str, request: Request, session: Session = Depends(ge
             await push_pending_alert_events(job_session)
             await generate_daily_brief(job_session, push=False)
 
-    if job_name in {"quotes", "details", "news", "announcements", "macro", "all", "brief"}:
+    if job_name in {"quotes", "details", "news", "announcements", "macro", "indices", "all", "brief"}:
         tracked_name = f"manual_{job_name}"
         if is_progress_request(request):
             run = start_background_job(tracked_name, action, use_collection_lock=is_collection_job_name(tracked_name))
@@ -614,6 +681,8 @@ def _job_label(job_name: str) -> str:
         "manual_news": "抓取新闻",
         "manual_announcements": "抓取公告",
         "manual_macro": "抓取宏观信息",
+        "manual_indices": "抓取市场指数",
+        "manual_index_analysis": "生成指数 AI 分析",
         "manual_all": "抓取全部信息",
         "collect_all": "定时抓取全部信息",
         "daily_noon_brief": "每日中午24小时简报",
@@ -625,6 +694,13 @@ def _job_label(job_name: str) -> str:
         "cn_open_brief": "A 股/港股开盘后简报",
         "us_open_brief": "美股开盘后简报",
     }.get(job_name, job_name)
+
+
+def _daily_index_points(points: list[MarketIndexPoint]) -> list[MarketIndexPoint]:
+    by_day: dict[object, MarketIndexPoint] = {}
+    for point in points:
+        by_day[point.observed_at.date()] = point
+    return list(by_day.values())
 
 
 def is_progress_request(request: Request) -> bool:
@@ -667,6 +743,7 @@ COLLECTION_JOB_NAMES = {
     "manual_news",
     "manual_announcements",
     "manual_macro",
+    "manual_indices",
 }
 
 

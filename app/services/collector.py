@@ -15,6 +15,8 @@ from app.models import (
     HistoricalPrice,
     InstitutionalFlow,
     MacroEvent,
+    MarketIndexAnalysis,
+    MarketIndexPoint,
     MarketQuote,
     NewsItem,
     OrderBookSnapshot,
@@ -26,7 +28,7 @@ from app.presentation import format_beijing_time
 from app.services.ai import AiResult, DeepSeekClient, TranslationResult, build_brief_prompt, needs_chinese_translation
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
-from app.services.data_sources import MarketDataProvider, NewsProvider
+from app.services.data_sources import MARKET_INDEX_DEFINITIONS, MarketDataProvider, MarketIndexProvider, NewsProvider
 from app.services.pushdeer import PushDeerClient
 from app.services.settings_service import get_runtime_config
 from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
@@ -141,6 +143,88 @@ async def collect_macro(session: Session, provider: NewsProvider | None = None) 
     return _save_articles(session, articles, MacroEvent)
 
 
+async def collect_market_indices(session: Session, provider: MarketIndexProvider | None = None) -> int:
+    if provider is None:
+        provider = MarketIndexProvider()
+        points = provider.fetch_indices(full_history=_market_index_full_history_needed(session))
+    else:
+        points = provider.fetch_indices()
+    changed = 0
+    collected_at = datetime.now(timezone.utc)
+    latest_observed_by_code: dict[str, datetime] = {}
+    for point in points:
+        latest_observed_by_code[point.code] = max(
+            point.observed_at,
+            latest_observed_by_code.get(point.code, point.observed_at),
+        )
+    point_entries = [
+        (point, content_hash(point.code, point.observed_at.date().isoformat()))
+        for point in points
+    ]
+    existing_by_hash: dict[str, MarketIndexPoint] = {}
+    point_hashes = list({point_hash for _, point_hash in point_entries})
+    for offset in range(0, len(point_hashes), 500):
+        chunk = point_hashes[offset : offset + 500]
+        existing_points = session.exec(
+            select(MarketIndexPoint).where(MarketIndexPoint.content_hash.in_(chunk))
+        ).all()
+        existing_by_hash.update({item.content_hash: item for item in existing_points})
+    for point, point_hash in point_entries:
+        existing = existing_by_hash.get(point_hash)
+        if existing is None:
+            existing = MarketIndexPoint(
+                index_code=point.code,
+                name=point.name,
+                value=point.value,
+                unit=point.unit,
+                status=point.status,
+                source=point.source,
+                observed_at=point.observed_at,
+                collected_at=collected_at,
+                content_hash=point_hash,
+            )
+            session.add(existing)
+            existing_by_hash[point_hash] = existing
+            changed += 1
+            continue
+        if existing.value == point.value and existing.status == point.status:
+            if point.observed_at == latest_observed_by_code.get(point.code):
+                existing.observed_at = point.observed_at
+                existing.collected_at = collected_at
+                session.add(existing)
+            continue
+        existing.name = point.name
+        existing.value = point.value
+        existing.unit = point.unit
+        existing.status = point.status
+        existing.source = point.source
+        existing.observed_at = point.observed_at
+        existing.collected_at = collected_at
+        session.add(existing)
+        changed += 1
+    session.commit()
+    return changed
+
+
+def _market_index_full_history_needed(session: Session) -> bool:
+    inception_checks = {
+        "fear_greed": datetime(2012, 1, 1, tzinfo=timezone.utc),
+        "vix": datetime(1991, 1, 1, tzinfo=timezone.utc),
+        "move": datetime(2004, 1, 1, tzinfo=timezone.utc),
+        "us10y": datetime(1963, 1, 1, tzinfo=timezone.utc),
+    }
+    for code, cutoff in inception_checks.items():
+        earliest = session.exec(
+            select(MarketIndexPoint)
+            .where(MarketIndexPoint.index_code == code)
+            .order_by(MarketIndexPoint.observed_at)
+            .limit(1)
+        ).first()
+        if earliest is None or _aware_utc(earliest.observed_at) > cutoff:
+            return True
+    return False
+
+
 async def collect_all_information(session: Session) -> dict[str, int]:
     return {
         "quotes": await collect_quotes(session),
@@ -148,6 +232,7 @@ async def collect_all_information(session: Session) -> dict[str, int]:
         "news": await collect_news(session),
         "announcements": await collect_announcements(session),
         "macro": await collect_macro(session),
+        "indices": await collect_market_indices(session),
     }
 
 
@@ -207,6 +292,56 @@ async def answer_question(session: Session, question: str) -> str:
     )
     _record_ai_usage(session, "chat", cfg.deepseek_model, result)
     return result.content
+
+
+async def generate_market_index_analysis(session: Session) -> MarketIndexAnalysis:
+    if session.exec(select(MarketIndexPoint).limit(1)).first() is None:
+        await collect_market_indices(session)
+    cfg = get_runtime_config(session)
+    context = build_market_index_context(session)
+    result = await DeepSeekClient(cfg).complete(
+        "请根据四项指数的最新值和历史走势给出简要分析。重点说明股票与债券市场风险情绪是否一致、"
+        "近一周和近一月的主要变化、需要继续观察的风险。不要预测确定方向，不超过500字，结尾注明非投资建议。",
+        context,
+    )
+    _record_ai_usage(session, "market_indices", cfg.deepseek_model, result)
+    analysis = MarketIndexAnalysis(content=result.content, context=context)
+    session.add(analysis)
+    session.commit()
+    session.refresh(analysis)
+    return analysis
+
+
+def build_market_index_context(session: Session) -> str:
+    pieces: list[str] = []
+    for definition in MARKET_INDEX_DEFINITIONS:
+        raw_points = session.exec(
+            select(MarketIndexPoint)
+            .where(MarketIndexPoint.index_code == definition.code)
+            .order_by(col(MarketIndexPoint.observed_at).desc())
+            .limit(500)
+        ).all()
+        points = _daily_market_index_points(list(reversed(raw_points)))
+        if not points:
+            pieces.append(f"[{definition.symbol} / {definition.name}] 暂无数据")
+            continue
+        latest = points[-1]
+        values = [item.value for item in points]
+        latest_time = _aware_utc(latest.observed_at)
+        comparisons = []
+        for label, days in (("7日前", 7), ("30日前", 30), ("90日前", 90), ("1年前", 365)):
+            previous = _market_index_at_or_before(points, latest_time - timedelta(days=days))
+            if previous is not None:
+                comparisons.append(f"{label}={previous.value:.2f},变化={latest.value - previous.value:+.2f}")
+        recent = ", ".join(f"{item.observed_at.date()}:{item.value:.2f}" for item in points[-30:])
+        status = f" status={latest.status}" if latest.status else ""
+        pieces.append(
+            f"[{definition.symbol} / {definition.name}] latest={latest.value:.2f}{definition.unit}{status} "
+            f"time={latest.observed_at.isoformat()} source={latest.source}; "
+            f"历史样本={len(points)},平均={sum(values) / len(values):.2f},最低={min(values):.2f},最高={max(values):.2f}; "
+            f"{'; '.join(comparisons)}; 最近30个交易日={recent}"
+        )
+    return "\n".join(pieces)
 
 
 async def maybe_fetch_from_question(session: Session, question: str) -> str:
@@ -526,6 +661,30 @@ def _has_recent_record(
     if stock_id is not None and hasattr(model_type, "stock_id"):
         stmt = stmt.where(model_type.stock_id == stock_id)
     return session.exec(stmt.limit(1)).first() is not None
+
+
+def _daily_market_index_points(points: list[MarketIndexPoint]) -> list[MarketIndexPoint]:
+    by_day: dict[object, MarketIndexPoint] = {}
+    for point in points:
+        by_day[_aware_utc(point.observed_at).date()] = point
+    return list(by_day.values())
+
+
+def _market_index_at_or_before(
+    points: list[MarketIndexPoint], target: datetime
+) -> MarketIndexPoint | None:
+    result = None
+    for point in points:
+        if _aware_utc(point.observed_at) > target:
+            break
+        result = point
+    return result
+
+
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _new_articles(

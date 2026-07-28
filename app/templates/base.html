@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title or "Stock Info Service" }}</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v={{ asset_version() }}">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
   <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v={{ asset_version() }}" defer></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -16,6 +16,7 @@
       <a href="/">概览</a>
       <a href="/watchlist">自选股</a>
       <a href="/info">信息库</a>
+      <a href="/indices">指数</a>
       <a href="/briefs">简报</a>
       <a href="/chat">AI 对话</a>
       <a href="/alerts">监控</a>

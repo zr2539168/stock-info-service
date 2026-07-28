@@ -121,6 +121,26 @@ class MacroEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class MarketIndexPoint(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    index_code: str = Field(index=True, max_length=32)
+    name: str = Field(max_length=128)
+    value: float
+    unit: str = Field(default="", max_length=16)
+    status: str = Field(default="", max_length=64)
+    source: str = Field(default="", max_length=128)
+    observed_at: datetime = Field(index=True)
+    collected_at: datetime = Field(default_factory=utc_now, index=True)
+    content_hash: str = Field(index=True, max_length=64)
+
+
+class MarketIndexAnalysis(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    content: str = Field(default="")
+    context: str = Field(default="")
+    generated_at: datetime = Field(default_factory=utc_now, index=True)
+
+
 class Brief(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: Optional[int] = Field(default=None, index=True, foreign_key="stock.id")

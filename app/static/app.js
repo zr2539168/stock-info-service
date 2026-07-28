@@ -25,6 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
   startCollectionButtonPolling();
+  initIndexCharts();
 });
 
 document.addEventListener("submit", async (event) => {
@@ -164,7 +165,170 @@ function isCollectionJob(jobName) {
     "manual_news",
     "manual_announcements",
     "manual_macro",
+    "manual_indices",
   ].includes(jobName);
+}
+
+function initIndexCharts() {
+  const charts = [];
+  document.querySelectorAll("canvas[data-index-chart]").forEach((canvas) => {
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return;
+    }
+    const sourceId = canvas.dataset.indexChart;
+    const source = sourceId ? document.getElementById(sourceId) : null;
+    if (!source) {
+      return;
+    }
+    let points = [];
+    try {
+      points = JSON.parse(source.textContent || "[]");
+    } catch (_error) {
+      points = [];
+    }
+    const chart = { canvas, points };
+    charts.push(chart);
+    const render = () => drawIndexChart(canvas, filterIndexPoints(points, selectedIndexRange()));
+    render();
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(render).observe(canvas);
+    }
+  });
+
+  document.querySelectorAll("button[data-index-range]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const range = button.dataset.indexRange || "1y";
+      try {
+        window.localStorage.setItem("market-index-range", range);
+      } catch (_error) {
+        // Local storage is optional; the shared selector still works for this page view.
+      }
+      updateIndexRangeButtons(range);
+      charts.forEach((chart) => drawIndexChart(chart.canvas, filterIndexPoints(chart.points, range)));
+    });
+  });
+  updateIndexRangeButtons(selectedIndexRange());
+}
+
+function selectedIndexRange() {
+  const allowed = ["7d", "30d", "1y", "10y", "max"];
+  try {
+    const stored = window.localStorage.getItem("market-index-range");
+    return allowed.includes(stored) ? stored : "1y";
+  } catch (_error) {
+    return "1y";
+  }
+}
+
+function updateIndexRangeButtons(range) {
+  document.querySelectorAll("button[data-index-range]").forEach((button) => {
+    const active = button.dataset.indexRange === range;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function filterIndexPoints(points, range) {
+  const valid = points.filter((point) => Number.isFinite(Number(point.value)) && point.date);
+  if (valid.length === 0 || range === "max") {
+    return valid;
+  }
+  const latest = new Date(`${valid[valid.length - 1].date}T00:00:00Z`);
+  const cutoff = new Date(latest);
+  if (range === "7d") {
+    cutoff.setUTCDate(cutoff.getUTCDate() - 7);
+  } else if (range === "30d") {
+    cutoff.setUTCMonth(cutoff.getUTCMonth() - 1);
+  } else if (range === "10y") {
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 10);
+  } else {
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - 1);
+  }
+  return valid.filter((point) => new Date(`${point.date}T00:00:00Z`) >= cutoff);
+}
+
+function drawIndexChart(canvas, points) {
+  const width = Math.max(canvas.clientWidth, 280);
+  const height = Math.max(canvas.clientHeight, 220);
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+
+  const valid = points.filter((point) => Number.isFinite(Number(point.value)));
+  if (valid.length === 0) {
+    context.fillStyle = "#98a2b3";
+    context.font = '13px "Segoe UI", sans-serif';
+    context.fillText("暂无历史数据", 16, height / 2);
+    return;
+  }
+
+  const values = valid.map((point) => Number(point.value));
+  let minimum = Math.min(...values);
+  let maximum = Math.max(...values);
+  const span = maximum - minimum || Math.max(Math.abs(maximum) * 0.08, 1);
+  minimum -= span * 0.1;
+  maximum += span * 0.1;
+
+  const padding = { top: 18, right: 18, bottom: 30, left: 48 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const x = (index) => padding.left + (valid.length === 1 ? plotWidth / 2 : (index / (valid.length - 1)) * plotWidth);
+  const y = (value) => padding.top + ((maximum - value) / (maximum - minimum)) * plotHeight;
+
+  context.strokeStyle = "#e4e7ec";
+  context.fillStyle = "#667085";
+  context.font = '11px "Segoe UI", sans-serif';
+  context.lineWidth = 1;
+  for (let step = 0; step <= 4; step += 1) {
+    const gridY = padding.top + (step / 4) * plotHeight;
+    context.beginPath();
+    context.moveTo(padding.left, gridY);
+    context.lineTo(width - padding.right, gridY);
+    context.stroke();
+    const label = maximum - (step / 4) * (maximum - minimum);
+    context.fillText(label.toFixed(1), 6, gridY + 4);
+  }
+
+  const gradient = context.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+  gradient.addColorStop(0, "rgba(21, 127, 116, 0.22)");
+  gradient.addColorStop(1, "rgba(21, 127, 116, 0.01)");
+  context.beginPath();
+  valid.forEach((point, index) => {
+    const method = index === 0 ? "moveTo" : "lineTo";
+    context[method](x(index), y(Number(point.value)));
+  });
+  context.lineTo(x(valid.length - 1), height - padding.bottom);
+  context.lineTo(x(0), height - padding.bottom);
+  context.closePath();
+  context.fillStyle = gradient;
+  context.fill();
+
+  context.beginPath();
+  valid.forEach((point, index) => {
+    const method = index === 0 ? "moveTo" : "lineTo";
+    context[method](x(index), y(Number(point.value)));
+  });
+  context.strokeStyle = "#157f74";
+  context.lineWidth = 2;
+  context.lineJoin = "round";
+  context.stroke();
+
+  const latestIndex = valid.length - 1;
+  context.beginPath();
+  context.arc(x(latestIndex), y(Number(valid[latestIndex].value)), 3.5, 0, Math.PI * 2);
+  context.fillStyle = "#0e5f57";
+  context.fill();
+  context.fillStyle = "#667085";
+  context.fillText(valid[0].date || "", padding.left, height - 8);
+  const lastDate = valid[latestIndex].date || "";
+  const dateWidth = context.measureText(lastDate).width;
+  context.fillText(lastDate, width - padding.right - dateWidth, height - 8);
 }
 
 function updateCooldownField(select) {
