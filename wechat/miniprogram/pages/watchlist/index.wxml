@@ -7,7 +7,7 @@
       市场：{{markets[marketIndex]}}
     </picker>
     <input class="input" name="symbol" placeholder="股票代码，例如 AAPL / 600519" required />
-    <input class="input" name="name" placeholder="名称（可留空自动识别）" />
+    <input class="input" name="name" placeholder="名称（可选，默认使用代码）" />
     <input class="input" name="tags" placeholder="标签，可选" />
     <button class="primary" form-type="submit" loading="{{saving}}">添加到自选</button>
   </form>

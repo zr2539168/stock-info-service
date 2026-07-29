@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable
@@ -395,18 +396,34 @@ class MarketDataProvider:
 
 
 class StockIdentityProvider:
+    def __init__(self, remote_lookup: bool = True) -> None:
+        self.remote_lookup = remote_lookup
+
     def resolve(self, market: str, symbol: str) -> ResolvedStock | None:
         market = normalize_market(market)
         symbol = normalize_symbol(symbol, market)
-        if not symbol:
+        candidate = self._local_candidate(market, symbol)
+        if candidate is None:
             return None
+        if not self.remote_lookup:
+            return candidate
         if market == "CN":
-            if not symbol.isdigit() or len(symbol) != 6:
-                return None
             return self._resolve_akshare_cn(symbol) or self._resolve_akshare_cn_etf(symbol)
-        if market == "HK" and not symbol.isdigit():
-            return None
         return self._resolve_yfinance(market, symbol)
+
+    @staticmethod
+    def _local_candidate(market: str, symbol: str) -> ResolvedStock | None:
+        if market == "CN":
+            valid = symbol.isdigit() and len(symbol) == 6
+        elif market == "HK":
+            valid = symbol.isdigit() and 1 <= len(symbol) <= 5
+        elif market == "US":
+            valid = re.fullmatch(r"[A-Z][A-Z0-9.-]{0,15}", symbol) is not None
+        else:
+            valid = False
+        if not valid:
+            return None
+        return ResolvedStock(market=market, symbol=symbol, name=symbol, source="local validation")
 
     def _resolve_akshare_cn(self, symbol: str) -> ResolvedStock | None:
         try:

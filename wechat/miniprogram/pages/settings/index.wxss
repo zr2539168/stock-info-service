@@ -3,3 +3,7 @@ button.compact {
   padding: 0 22rpx;
   font-size: 24rpx;
 }
+
+button.primary {
+  width: 100%;
+}

@@ -83,7 +83,7 @@ templates.env.globals["asset_version"] = lambda: max(
 )
 templates.env.globals["app_mode"] = settings.app_mode
 scheduler = build_scheduler()
-stock_identity_provider = StockIdentityProvider()
+stock_identity_provider = StockIdentityProvider(remote_lookup=False)
 logger = logging.getLogger(__name__)
 
 

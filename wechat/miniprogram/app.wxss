@@ -86,12 +86,23 @@ page {
 }
 
 .button,
-button.primary {
-  border: 0;
+button.primary,
+button.secondary,
+button.danger {
+  box-sizing: border-box;
+  min-height: 72rpx;
+  margin: 0;
+  padding: 0 28rpx;
+  border: 1rpx solid transparent;
   border-radius: 12rpx;
+  font-size: 28rpx;
+  line-height: 70rpx;
+}
+
+.button,
+button.primary {
   background: #0878d1;
   color: white;
-  font-size: 28rpx;
 }
 
 button.secondary {
@@ -110,6 +121,11 @@ button[disabled] {
   opacity: 0.5;
 }
 
+button.compact {
+  min-height: 60rpx;
+  line-height: 58rpx;
+}
+
 input,
 textarea,
 picker {
@@ -120,14 +136,29 @@ picker {
 .textarea,
 .picker {
   width: 100%;
-  padding: 20rpx;
   border: 1rpx solid #cbd5e1;
   border-radius: 12rpx;
   background: white;
 }
 
+.input {
+  height: 80rpx;
+  padding: 0 20rpx;
+  line-height: 80rpx;
+}
+
+.picker {
+  display: flex;
+  min-height: 80rpx;
+  align-items: center;
+  padding: 0 20rpx;
+  line-height: 1.4;
+}
+
 .textarea {
   min-height: 180rpx;
+  padding: 20rpx;
+  line-height: 1.5;
 }
 
 .metric {

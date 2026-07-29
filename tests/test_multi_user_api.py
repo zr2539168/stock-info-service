@@ -94,6 +94,25 @@ def test_user_watchlists_are_isolated() -> None:
     assert second_result.json()["items"] == []
 
 
+def test_add_watchlist_accepts_valid_symbol_without_remote_identity_lookup() -> None:
+    test_engine = _engine()
+    with Session(test_engine) as session:
+        session.add(User(openid="watchlist-user", status="active"))
+        session.commit()
+
+    with _client(test_engine) as client:
+        response = client.post(
+            "/api/v1/watchlists",
+            headers={"X-WX-OPENID": "watchlist-user"},
+            json={"market": "US", "symbol": "googl", "name": "", "tags": ""},
+        )
+
+    assert response.status_code == 201
+    assert response.json()["stock"]["market"] == "US"
+    assert response.json()["stock"]["symbol"] == "GOOGL"
+    assert response.json()["stock"]["name"] == "GOOGL"
+
+
 def test_all_private_resource_ids_are_checked_against_current_user() -> None:
     test_engine = _engine()
     with Session(test_engine) as session:

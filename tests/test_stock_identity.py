@@ -94,3 +94,30 @@ def test_resolve_us_stock_uses_yfinance_name(monkeypatch) -> None:
     assert resolved.market == "US"
     assert resolved.symbol == "AAPL"
     assert resolved.name == "Apple Inc."
+
+
+def test_local_only_resolver_accepts_valid_symbols_without_remote_calls(monkeypatch) -> None:
+    fake_akshare = SimpleNamespace(
+        stock_zh_a_spot_em=lambda: (_ for _ in ()).throw(AssertionError("should not call AKShare"))
+    )
+    fake_yfinance = SimpleNamespace(
+        Ticker=lambda symbol: (_ for _ in ()).throw(AssertionError("should not call yfinance"))
+    )
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare)
+    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+    provider = StockIdentityProvider(remote_lookup=False)
+
+    cn = provider.resolve("CN", "159501")
+    us = provider.resolve("US", "googl")
+
+    assert cn is not None and (cn.market, cn.symbol, cn.name) == ("CN", "159501", "159501")
+    assert us is not None and (us.market, us.symbol, us.name) == ("US", "GOOGL", "GOOGL")
+
+
+def test_local_only_resolver_rejects_invalid_market_and_symbol_formats() -> None:
+    provider = StockIdentityProvider(remote_lookup=False)
+
+    assert provider.resolve("CN", "QQQ") is None
+    assert provider.resolve("HK", "0700A") is None
+    assert provider.resolve("US", "GOOGL$") is None
+    assert provider.resolve("UNKNOWN", "AAPL") is None

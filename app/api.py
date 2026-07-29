@@ -73,7 +73,7 @@ from app.services.users import (
 
 router = APIRouter(prefix="/api/v1")
 internal_router = APIRouter(prefix="/internal")
-stock_identity_provider = StockIdentityProvider()
+stock_identity_provider = StockIdentityProvider(remote_lookup=False)
 
 
 class ApiError(Exception):
@@ -242,7 +242,7 @@ def add_watchlist(
 ) -> dict[str, Any]:
     resolved = stock_identity_provider.resolve(payload.market, payload.symbol)
     if resolved is None:
-        raise ApiError(422, "STOCK_NOT_FOUND", "未能识别该股票代码")
+        raise ApiError(422, "INVALID_STOCK_SYMBOL", "股票市场或代码格式不正确")
     stock = session.exec(
         select(Stock).where(Stock.market == resolved.market, Stock.symbol == resolved.symbol)
     ).first()

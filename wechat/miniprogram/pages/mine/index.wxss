@@ -11,9 +11,17 @@
   margin-top: 24rpx;
 }
 
+.name-row .input {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+}
+
 .save-name {
   flex: none;
+  width: 150rpx;
   margin: 0;
+  padding: 0;
 }
 
 .menu-card {
