@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<header class="page-head"><h1>用户审核</h1></header>
+<section class="panel">
+  <table>
+    <thead><tr><th>用户</th><th>OpenID</th><th>状态</th><th>角色</th><th>最近访问</th><th>操作</th></tr></thead>
+    <tbody>
+    {% for user in users %}
+      <tr>
+        <td>{{ user.display_name or "未设置昵称" }}</td>
+        <td>{{ user.openid[:5] }}***{{ user.openid[-4:] }}</td>
+        <td>{{ user.status }}</td>
+        <td>{{ user.role }}</td>
+        <td>{{ user.last_seen_at | beijing_time }}</td>
+        <td>
+          <form method="post" action="/users/{{ user.id }}" class="inline-form-row">
+            <select name="status">
+              {% for value in ["pending", "active", "disabled"] %}
+              <option value="{{ value }}" {% if user.status == value %}selected{% endif %}>{{ value }}</option>
+              {% endfor %}
+            </select>
+            <select name="role">
+              <option value="user" {% if user.role == "user" %}selected{% endif %}>user</option>
+              <option value="admin" {% if user.role == "admin" %}selected{% endif %}>admin</option>
+            </select>
+            <button type="submit">保存</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6">暂无注册用户。用户首次打开小程序后会出现在这里。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

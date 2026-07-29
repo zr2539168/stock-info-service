@@ -1,0 +1,14 @@
+<view class="page">
+  <view class="row-between header-row">
+    <view class="page-title">市场简报</view>
+    <button class="primary generate" loading="{{generating}}" bindtap="generate">立即生成</button>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <view wx:elif="{{!items.length}}" class="empty">暂无简报。请先配置 DeepSeek Key，然后点击“立即生成”。</view>
+  <view wx:for="{{items}}" wx:key="id" class="card" data-id="{{item.id}}" bindtap="open">
+    <view class="card-title">{{item.title}}</view>
+    <view class="muted">{{item.generatedText}}</view>
+    <view class="preview">{{item.content}}</view>
+  </view>
+</view>

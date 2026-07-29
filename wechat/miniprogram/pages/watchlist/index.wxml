@@ -1,0 +1,36 @@
+<view class="page">
+  <view class="page-title">自选股</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <form class="card stack" bindsubmit="add">
+    <view class="card-title">添加股票</view>
+    <picker class="picker" mode="selector" range="{{markets}}" value="{{marketIndex}}" bindchange="selectMarket">
+      市场：{{markets[marketIndex]}}
+    </picker>
+    <input class="input" name="symbol" placeholder="股票代码，例如 AAPL / 600519" required />
+    <input class="input" name="name" placeholder="名称（可留空自动识别）" />
+    <input class="input" name="tags" placeholder="标签，可选" />
+    <button class="primary" form-type="submit" loading="{{saving}}">添加到自选</button>
+  </form>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <view wx:elif="{{!items.length}}" class="empty">暂无自选股</view>
+  <view wx:for="{{items}}" wx:key="id" class="card">
+    <view class="row-between">
+      <view>
+        <view class="card-title">{{item.stock.name || item.stock.symbol}}</view>
+        <view class="muted">{{item.stock.market}} {{item.stock.symbol}}</view>
+      </view>
+      <view wx:if="{{item.quote}}" class="price-block">
+        <view class="metric small">{{item.quote.priceText}}</view>
+        <view class="{{item.quote.trendClass}}">{{item.quote.percentText}}</view>
+      </view>
+    </view>
+    <view wx:if="{{item.tags}}" class="tag">{{item.tags}}</view>
+    <view class="divider"></view>
+    <view class="row">
+      <button class="secondary compact" data-id="{{item.id}}" data-active="{{item.active}}" bindtap="toggle">
+        {{item.active ? "暂停采集" : "恢复采集"}}
+      </button>
+      <button class="danger compact" data-id="{{item.id}}" bindtap="remove">删除</button>
+    </view>
+  </view>
+</view>

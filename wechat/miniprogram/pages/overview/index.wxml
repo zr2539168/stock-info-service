@@ -1,0 +1,40 @@
+<view class="page">
+  <view class="page-title">市场概览</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在加载云端数据…</view>
+  <block wx:elif="{{dashboard}}">
+    <view class="summary-grid">
+      <view class="card summary-card">
+        <view class="muted">自选股</view>
+        <view class="metric">{{dashboard.watchlist_count}}</view>
+      </view>
+      <view class="card summary-card" bindtap="openNotifications">
+        <view class="muted">未读通知</view>
+        <view class="metric">{{dashboard.unread_notification_count}}</view>
+      </view>
+    </view>
+    <view class="card" wx:if="{{dashboard.latest_brief}}" bindtap="openBriefs">
+      <view class="row-between">
+        <view class="card-title">最新简报</view>
+        <view class="link">查看全部</view>
+      </view>
+      <view>{{dashboard.latest_brief.title}}</view>
+      <view class="muted">{{dashboard.latestBriefTime}}</view>
+    </view>
+    <view class="card">
+      <view class="card-title">自选股行情</view>
+      <view wx:if="{{!dashboard.quotes.length}}" class="empty">先到“自选股”添加关注标的</view>
+      <view wx:for="{{dashboard.quotes}}" wx:key="id" class="quote-row">
+        <view>
+          <view>{{item.stock.name || item.stock.symbol}}</view>
+          <view class="muted">{{item.stock.market}} {{item.stock.symbol}}</view>
+        </view>
+        <view wx:if="{{item.quote}}" class="quote-value">
+          <view>{{item.quote.priceText}}</view>
+          <view class="{{item.quote.trendClass}}">{{item.quote.percentText}}</view>
+        </view>
+        <view wx:else class="muted">暂无行情</view>
+      </view>
+    </view>
+  </block>
+</view>

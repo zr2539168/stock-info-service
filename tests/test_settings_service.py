@@ -12,6 +12,7 @@ from app.services.settings_service import (
     get_market_open_brief_settings,
     get_runtime_config,
     set_setting,
+    validate_collection_cron,
     workday_time_to_cron,
 )
 
@@ -22,12 +23,10 @@ def test_runtime_config_uses_database_override() -> None:
 
     with Session(engine) as session:
         set_setting(session, "deepseek_model", "deepseek-v4-pro")
-        set_setting(session, "pushdeer_endpoint", "https://example.test/push")
 
         cfg = get_runtime_config(session)
 
         assert cfg.deepseek_model == "deepseek-v4-pro"
-        assert cfg.pushdeer_endpoint == "https://example.test/push"
         assert session.get(AppSetting, "deepseek_model") is not None
 
 
@@ -83,6 +82,12 @@ def test_workday_time_to_cron() -> None:
 def test_daily_time_to_cron() -> None:
     assert daily_time_to_cron("12:00") == "0 12 * * *"
     assert daily_time_to_cron("13:20") == "20 13 * * *"
+
+
+def test_collection_cron_validation() -> None:
+    assert validate_collection_cron("  15   * * * * ") == "15 * * * *"
+    with pytest.raises(ValueError):
+        validate_collection_cron("not-a-cron")
 
 
 def test_workday_time_to_cron_rejects_invalid_time() -> None:

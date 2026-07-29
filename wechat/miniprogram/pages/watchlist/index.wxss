@@ -1,0 +1,14 @@
+.price-block {
+  text-align: right;
+}
+
+.metric.small {
+  font-size: 34rpx;
+}
+
+button.compact {
+  margin: 0;
+  padding: 0 22rpx;
+  font-size: 26rpx;
+  line-height: 2.2;
+}

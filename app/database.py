@@ -18,23 +18,44 @@ def _ensure_sqlite_parent(database_url: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
 
-_ensure_sqlite_parent(settings.database_url)
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, echo=False, connect_args=connect_args)
+def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("mysql://"):
+        return database_url.replace("mysql://", "mysql+pymysql://", 1)
+    return database_url
+
+
+database_url = normalize_database_url(settings.database_url)
+_ensure_sqlite_parent(database_url)
+connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+engine = create_engine(
+    database_url,
+    echo=False,
+    connect_args=connect_args,
+    pool_pre_ping=not database_url.startswith("sqlite"),
+    pool_recycle=1800,
+)
 
 
 def init_db() -> None:
     from app import models  # noqa: F401
 
-    SQLModel.metadata.create_all(engine)
-    _migrate_alert_rule_push_mode()
-    _migrate_brief_scope_key()
-    _migrate_volume_analysis_columns()
+    if database_url.startswith("sqlite"):
+        SQLModel.metadata.create_all(engine)
+        _migrate_alert_rule_push_mode()
+        _migrate_brief_scope_key()
+        _migrate_volume_analysis_columns()
+        _migrate_multi_user_columns()
+    else:
+        tables = set(inspect(engine).get_table_names())
+        required = {"app_user", "stock", "alembic_version"}
+        if not required.issubset(tables):
+            missing = ", ".join(sorted(required - tables))
+            raise RuntimeError(f"生产数据库尚未完成 Alembic 初始化，缺少表：{missing}")
     _mark_interrupted_jobs()
 
 
 def _migrate_alert_rule_push_mode() -> None:
-    if not settings.database_url.startswith("sqlite"):
+    if not database_url.startswith("sqlite"):
         return
     inspector = inspect(engine)
     if "alertrule" not in inspector.get_table_names():
@@ -47,7 +68,7 @@ def _migrate_alert_rule_push_mode() -> None:
 
 
 def _migrate_brief_scope_key() -> None:
-    if not settings.database_url.startswith("sqlite"):
+    if not database_url.startswith("sqlite"):
         return
     inspector = inspect(engine)
     if "brief" not in inspector.get_table_names():
@@ -60,7 +81,7 @@ def _migrate_brief_scope_key() -> None:
 
 
 def _migrate_volume_analysis_columns() -> None:
-    if not settings.database_url.startswith("sqlite"):
+    if not database_url.startswith("sqlite"):
         return
     for table_name in ("marketquote", "tradingdata"):
         _add_sqlite_column_if_missing(table_name, "volume_ratio", "REAL")
@@ -76,6 +97,23 @@ def _add_sqlite_column_if_missing(table_name: str, column_name: str, column_sql:
         return
     with engine.begin() as conn:
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"))
+
+
+def _migrate_multi_user_columns() -> None:
+    if not database_url.startswith("sqlite"):
+        return
+    owner_tables = (
+        "marketindexanalysis",
+        "brief",
+        "chatsession",
+        "alertrule",
+        "alertevent",
+        "fetchjobrun",
+        "aiusagelog",
+    )
+    for table_name in owner_tables:
+        _add_sqlite_column_if_missing(table_name, "user_id", "INTEGER")
+    _add_sqlite_column_if_missing("fetchjobrun", "idempotency_key", "VARCHAR(255) NOT NULL DEFAULT ''")
 
 
 def _mark_interrupted_jobs() -> None:

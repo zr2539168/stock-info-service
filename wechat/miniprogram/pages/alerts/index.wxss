@@ -1,0 +1,19 @@
+.section-title {
+  margin: 32rpx 0 16rpx;
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.action-row {
+  margin-top: 20rpx;
+}
+
+button.compact {
+  margin: 0;
+  padding: 0 20rpx;
+  font-size: 24rpx;
+}
+
+.event-card {
+  line-height: 1.6;
+}

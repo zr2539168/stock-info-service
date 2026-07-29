@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "市场指数",
+  "usingComponents": {
+    "index-chart": "/components/index-chart/index"
+  }
+}

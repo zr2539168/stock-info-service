@@ -1,0 +1,39 @@
+<view class="page">
+  <view class="page-title">我的</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在验证微信身份…</view>
+  <block wx:elif="{{user}}">
+    <view class="card profile-card">
+      <view class="row-between">
+        <view>
+          <view class="card-title">{{user.display_name || "微信用户"}}</view>
+          <view class="muted">{{user.openid_masked}}</view>
+        </view>
+        <view class="tag">{{user.role === "admin" ? "管理员" : "用户"}}</view>
+      </view>
+      <view wx:if="{{user.status === 'pending'}}" class="pending-box">
+        账号正在等待管理员审核。审核通过后即可使用自选股、AI 和提醒功能。
+      </view>
+      <view wx:elif="{{user.status === 'disabled'}}" class="error">账号已被停用，请联系管理员。</view>
+      <view wx:if="{{user.status === 'active'}}" class="row name-row">
+        <input class="input" value="{{displayName}}" bindinput="inputName" placeholder="设置显示名称" />
+        <button class="secondary save-name" bindtap="saveName">保存</button>
+      </view>
+    </view>
+    <block wx:if="{{user.status === 'active'}}">
+      <view class="card menu-card">
+        <view class="menu-item" data-url="/pages/briefs/index" bindtap="navigate"><text>市场简报</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/chat/index" bindtap="navigate"><text>AI 对话</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/alerts/index" bindtap="navigate"><text>提醒规则</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/notifications/index" bindtap="navigate"><text>通知中心</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/settings/index" bindtap="navigate"><text>DeepSeek 与简报设置</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/web-login/index" bindtap="navigate"><text>Web 登录确认</text><text>›</text></view>
+      </view>
+      <view wx:if="{{user.role === 'admin'}}" class="card menu-card">
+        <view class="card-title">管理员</view>
+        <view class="menu-item" data-url="/pages/admin/users" bindtap="navigate"><text>用户审核</text><text>›</text></view>
+        <view class="menu-item" data-url="/pages/admin/jobs" bindtap="navigate"><text>采集任务</text><text>›</text></view>
+      </view>
+    </block>
+  </block>
+</view>

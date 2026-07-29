@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>管理员扫码登录</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>Stock Info 管理台</h1>
+    <p>请使用已获管理员权限的微信账号扫码，并在小程序内确认登录。</p>
+    <img class="login-qr" src="{{ qr_url }}" alt="管理员登录小程序码">
+    <p id="login-status" class="muted">登录请求将在 2 分钟后失效</p>
+    <details>
+      <summary>开发环境无法打开小程序码？</summary>
+      <p>在小程序“我的 → Web 登录确认”中输入：<code>{{ manual_scene }}</code></p>
+    </details>
+    <a href="/admin/login">刷新登录码</a>
+  </main>
+  <script>
+    const challenge = {{ challenge_id | tojson }};
+    const statusNode = document.getElementById("login-status");
+    const timer = setInterval(async () => {
+      try {
+        const response = await fetch(`/admin/login/status/${challenge}`, { credentials: "same-origin" });
+        const result = await response.json();
+        if (result.status === "authenticated") {
+          clearInterval(timer);
+          statusNode.textContent = "登录成功，正在进入管理台…";
+          window.location.href = result.redirect || "/";
+        } else if (["expired", "rejected", "cancelled", "consumed"].includes(result.status)) {
+          clearInterval(timer);
+          statusNode.textContent = "登录请求已失效，请刷新页面重试";
+        } else if (result.status === "confirmed") {
+          statusNode.textContent = "已确认，正在建立安全会话…";
+        }
+      } catch (error) {
+        statusNode.textContent = "暂时无法查询登录状态，正在重试…";
+      }
+    }, 1500);
+  </script>
+</body>
+</html>

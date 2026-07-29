@@ -1,0 +1,5 @@
+button.compact {
+  margin: 0;
+  padding: 0 22rpx;
+  font-size: 24rpx;
+}

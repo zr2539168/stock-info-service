@@ -1,0 +1,4 @@
+.success-card {
+  border-color: #7bc5a5;
+  background: #edfbf4;
+}

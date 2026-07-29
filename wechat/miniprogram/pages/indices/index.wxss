@@ -1,0 +1,39 @@
+.range-toolbar {
+  display: flex;
+  gap: 10rpx;
+  margin: 24rpx 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.range-button {
+  flex: none;
+  margin: 0;
+  padding: 0 20rpx;
+  border: 1rpx solid #c7d2df;
+  background: white;
+  color: #435266;
+  font-size: 24rpx;
+  line-height: 2.3;
+}
+
+.range-button.active {
+  border-color: #0878d1;
+  background: #0878d1;
+  color: white;
+}
+
+.metric-row {
+  margin-bottom: 8rpx;
+}
+
+.description {
+  margin: 14rpx 0;
+  line-height: 1.6;
+}
+
+.analyze-button {
+  margin: 0;
+  padding: 0 18rpx;
+  font-size: 24rpx;
+}

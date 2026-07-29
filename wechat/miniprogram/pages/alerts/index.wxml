@@ -1,0 +1,43 @@
+<view class="page">
+  <view class="page-title">提醒规则</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <form class="card stack" bindsubmit="add">
+    <view class="card-title">创建提醒</view>
+    <view wx:if="{{!watchlists.length}}" class="empty">请先添加并启用自选股</view>
+    <block wx:else>
+      <picker class="picker" mode="selector" range="{{watchlists}}" range-key="label" value="{{stockIndex}}" bindchange="selectStock">
+        {{watchlists[stockIndex].label}}
+      </picker>
+      <picker class="picker" mode="selector" range="{{ruleTypes}}" range-key="name" value="{{ruleTypeIndex}}" bindchange="selectRuleType">
+        {{ruleTypes[ruleTypeIndex].name}}
+      </picker>
+      <input class="input" name="name" placeholder="提醒名称" />
+      <input class="input" name="threshold" type="digit" placeholder="阈值（关键词或 AI 简报可留空）" />
+      <input class="input" name="keyword" placeholder="关键词（仅关键词提醒需要）" />
+      <input class="input" name="cooldown_minutes" type="number" value="30" placeholder="冷却分钟数" />
+      <label class="row"><switch name="push_mode" />触发一次后自动停用</label>
+      <button class="primary" form-type="submit" loading="{{saving}}">保存规则</button>
+    </block>
+  </form>
+  <view class="section-title">规则</view>
+  <view wx:if="{{!rules.length && !loading}}" class="empty">暂无提醒规则</view>
+  <view wx:for="{{rules}}" wx:key="id" class="card">
+    <view class="row-between">
+      <view>
+        <view class="card-title">{{item.name || item.rule_type}}</view>
+        <view class="muted">{{item.stock.market}} {{item.stock.symbol}} · {{item.rule_type}}</view>
+      </view>
+      <view class="tag">{{item.enabled ? "启用" : "停用"}}</view>
+    </view>
+    <view class="row action-row">
+      <button class="secondary compact" data-id="{{item.id}}" data-enabled="{{item.enabled}}" bindtap="toggle">{{item.enabled ? "暂停" : "启用"}}</button>
+      <button class="danger compact" data-id="{{item.id}}" bindtap="remove">删除</button>
+    </view>
+  </view>
+  <view class="section-title">最近触发</view>
+  <view wx:if="{{!events.length && !loading}}" class="empty">暂无触发记录</view>
+  <view wx:for="{{events}}" wx:key="id" class="card event-card" data-id="{{item.id}}" bindtap="openEvent">
+    <view>{{item.message}}</view>
+    <view class="muted">{{item.createdText}}</view>
+  </view>
+</view>

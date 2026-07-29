@@ -1,0 +1,18 @@
+.header-row {
+  align-items: baseline;
+}
+
+.generate {
+  margin: 0;
+  padding: 0 22rpx;
+  font-size: 26rpx;
+}
+
+.preview {
+  display: -webkit-box;
+  margin-top: 14rpx;
+  overflow: hidden;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}

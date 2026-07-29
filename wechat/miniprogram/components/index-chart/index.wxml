@@ -1,0 +1,4 @@
+<view class="chart-shell">
+  <canvas type="2d" id="chart" class="chart" style="height: {{height}}px;"></canvas>
+  <view wx:if="{{!points.length}}" class="chart-empty">暂无历史数据</view>
+</view>

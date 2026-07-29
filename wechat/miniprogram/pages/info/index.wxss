@@ -1,0 +1,26 @@
+.heading-row {
+  align-items: baseline;
+}
+
+.compact-picker {
+  width: auto;
+  min-width: 150rpx;
+  padding: 12rpx 18rpx;
+}
+
+.summary {
+  margin-top: 18rpx;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.actions {
+  margin-top: 20rpx;
+}
+
+button.compact {
+  margin: 0;
+  padding: 0 20rpx;
+  font-size: 24rpx;
+  line-height: 2.2;
+}

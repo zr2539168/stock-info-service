@@ -1,0 +1,10 @@
+{
+  "name": "stock-info-message-dispatcher",
+  "version": "1.0.0",
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "@cloudbase/node-sdk": "^3.18.0",
+    "wx-server-sdk": "~2.6.3"
+  }
+}

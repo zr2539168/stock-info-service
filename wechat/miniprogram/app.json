@@ -1,0 +1,42 @@
+{
+  "pages": [
+    "pages/overview/index",
+    "pages/watchlist/index",
+    "pages/info/index",
+    "pages/indices/index",
+    "pages/mine/index",
+    "pages/briefs/index",
+    "pages/briefs/detail",
+    "pages/chat/index",
+    "pages/alerts/index",
+    "pages/alerts/detail",
+    "pages/notifications/index",
+    "pages/settings/index",
+    "pages/admin/users",
+    "pages/admin/jobs",
+    "pages/web-login/index"
+  ],
+  "window": {
+    "backgroundColor": "#F6F6F6",
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#F6F6F6",
+    "navigationBarTitleText": "Stock Info",
+    "navigationBarTextStyle": "black"
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "tabBar": {
+    "color": "#6b7785",
+    "selectedColor": "#0878d1",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      { "pagePath": "pages/overview/index", "text": "概览" },
+      { "pagePath": "pages/watchlist/index", "text": "自选股" },
+      { "pagePath": "pages/info/index", "text": "信息库" },
+      { "pagePath": "pages/indices/index", "text": "指数" },
+      { "pagePath": "pages/mine/index", "text": "我的" }
+    ]
+  }
+}

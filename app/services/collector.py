@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, col, select
 
+from app.config import settings
 from app.models import (
     AlertEvent,
     AlertRule,
@@ -22,6 +23,8 @@ from app.models import (
     OrderBookSnapshot,
     Stock,
     TradingData,
+    User,
+    UserWatchlist,
 )
 from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedOrderBook, NormalizedQuote, NormalizedTradingData
 from app.presentation import format_beijing_time
@@ -29,9 +32,10 @@ from app.services.ai import AiResult, DeepSeekClient, TranslationResult, build_b
 from app.services.alerts import alert_message, should_trigger
 from app.services.content import compact_text, content_hash
 from app.services.data_sources import MARKET_INDEX_DEFINITIONS, MarketDataProvider, MarketIndexProvider, NewsProvider
-from app.services.pushdeer import PushDeerClient
+from app.services.notifications import create_notification
 from app.services.settings_service import get_runtime_config
 from app.services.nl_fetch import execute_fetch_plan, plan_fetch_from_text
+from app.services.users import has_deepseek_key
 
 
 BRIEF_CONTEXT_CHAR_LIMIT = 16000
@@ -63,7 +67,7 @@ def latest_trading_snapshot(session: Session, stock_id: int) -> TradingData | No
 async def collect_quotes(session: Session, provider: MarketDataProvider | None = None) -> int:
     provider = provider or MarketDataProvider()
     count = 0
-    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    stocks = _collection_stocks(session)
     for stock in stocks:
         quote = provider.fetch_quote(stock.market, stock.symbol)
         if quote is None:
@@ -78,7 +82,7 @@ async def collect_quotes(session: Session, provider: MarketDataProvider | None =
 async def collect_market_details(session: Session, provider: MarketDataProvider | None = None) -> int:
     provider = provider or MarketDataProvider()
     count = 0
-    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    stocks = _collection_stocks(session)
     for stock in stocks:
         trading = provider.fetch_trading_data(stock.market, stock.symbol)
         if trading:
@@ -107,7 +111,7 @@ async def collect_market_details(session: Session, provider: MarketDataProvider 
 async def collect_news(session: Session, provider: NewsProvider | None = None) -> int:
     provider = provider or NewsProvider()
     count = 0
-    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    stocks = _collection_stocks(session)
     for stock in stocks:
         if _has_recent_record(session, NewsItem, NEWS_REFRESH_INTERVAL, stock_id=stock.id):
             continue
@@ -122,7 +126,7 @@ async def collect_news(session: Session, provider: NewsProvider | None = None) -
 async def collect_announcements(session: Session, provider: NewsProvider | None = None) -> int:
     provider = provider or NewsProvider()
     count = 0
-    stocks = session.exec(select(Stock).where(Stock.active == True)).all()  # noqa: E712
+    stocks = _collection_stocks(session)
     for stock in stocks:
         if _has_recent_record(session, Announcement, ANNOUNCEMENT_REFRESH_INTERVAL, stock_id=stock.id):
             continue
@@ -141,6 +145,25 @@ async def collect_macro(session: Session, provider: NewsProvider | None = None) 
     articles = _new_articles(session, articles, MacroEvent)
     articles = await _translate_articles_to_chinese(session, articles)
     return _save_articles(session, articles, MacroEvent)
+
+
+def _collection_stocks(session: Session) -> list[Stock]:
+    """云端仅抓取有效用户自选股的并集；本地开发保持原有单用户行为。"""
+    if settings.app_mode != "api":
+        return list(session.exec(select(Stock).where(Stock.active == True)).all())  # noqa: E712
+    statement = (
+        select(Stock)
+        .join(UserWatchlist, UserWatchlist.stock_id == Stock.id)
+        .join(User, User.id == UserWatchlist.user_id)
+        .where(
+            Stock.active == True,  # noqa: E712
+            UserWatchlist.active == True,  # noqa: E712
+            User.status == "active",
+        )
+        .distinct()
+        .order_by(Stock.market, Stock.symbol)
+    )
+    return list(session.exec(statement).all())
 
 
 async def collect_market_indices(session: Session, provider: MarketIndexProvider | None = None) -> int:
@@ -243,10 +266,11 @@ async def generate_daily_brief(
     scope_label: str | None = None,
     markets: set[str] | None = None,
     latest_hours: int | None = None,
+    user_id: int | None = None,
 ) -> Brief:
-    cfg = get_runtime_config(session)
+    cfg = get_runtime_config(session, user_id=user_id)
     scope_key = _brief_scope_key(stock_id, markets)
-    previous_brief = _latest_brief_for_scope(session, scope_key, stock_id)
+    previous_brief = _latest_brief_for_scope(session, scope_key, stock_id, user_id=user_id)
     latest_since = datetime.now(timezone.utc) - timedelta(hours=latest_hours) if latest_hours else None
     context = build_context(
         session,
@@ -255,17 +279,19 @@ async def generate_daily_brief(
         new_since=latest_since or (previous_brief.generated_at if previous_brief else None),
         strict_new_since=latest_since is not None,
         max_chars=BRIEF_CONTEXT_CHAR_LIMIT,
+        allowed_stock_ids=_user_stock_ids(session, user_id) if user_id is not None else None,
     )
     ai = DeepSeekClient(cfg)
     scope = scope_label or ("自选股" if stock_id is None else "个股")
     result = await ai.complete(build_brief_prompt(scope), context)
-    _record_ai_usage(session, "brief", cfg.deepseek_model, result)
+    _record_ai_usage(session, "brief", cfg.deepseek_model, result, user_id=user_id)
     generated_at = datetime.now(timezone.utc)
     generated_time = format_beijing_time(generated_at)
     base_title = f"{scope_label}简报" if scope_label else ("每日市场简报" if stock_id is None else "个股简报")
     title = f"{base_title}（北京时间 {generated_time}）"
     content = f"生成时间：北京时间 {generated_time}\n\n{result.content}"
     brief = Brief(
+        user_id=user_id,
         stock_id=stock_id,
         scope_key=scope_key,
         title=title,
@@ -276,36 +302,50 @@ async def generate_daily_brief(
     session.add(brief)
     session.commit()
     session.refresh(brief)
-    if push:
-        await PushDeerClient(cfg).push(title, content)
+    if push and user_id is not None:
+        create_notification(
+            session,
+            user_id=user_id,
+            notification_type="brief",
+            title=title,
+            content=content,
+            page_path=f"/pages/briefs/detail?id={brief.id}",
+            idempotency_key=f"brief:{brief.id}",
+        )
     return brief
 
 
-async def answer_question(session: Session, question: str) -> str:
+async def answer_question(session: Session, question: str, user_id: int | None = None) -> str:
     fetch_note = await maybe_fetch_from_question(session, question)
-    cfg = get_runtime_config(session)
-    context = build_context(session, None, query=question, max_chars=CHAT_CONTEXT_CHAR_LIMIT)
+    cfg = get_runtime_config(session, user_id=user_id)
+    context = build_context(
+        session,
+        None,
+        query=question,
+        max_chars=CHAT_CONTEXT_CHAR_LIMIT,
+        allowed_stock_ids=_user_stock_ids(session, user_id) if user_id is not None else None,
+    )
     if fetch_note:
         context = f"{fetch_note}\n{context}"
     result = await DeepSeekClient(cfg).complete(
         f"请回答这个问题：{question}。回答必须引用已有来源；如果资料不足，请明确说明。", context
     )
-    _record_ai_usage(session, "chat", cfg.deepseek_model, result)
+    _record_ai_usage(session, "chat", cfg.deepseek_model, result, user_id=user_id)
     return result.content
 
 
-async def generate_market_index_analysis(session: Session) -> MarketIndexAnalysis:
+async def generate_market_index_analysis(session: Session, user_id: int | None = None) -> MarketIndexAnalysis:
     if session.exec(select(MarketIndexPoint).limit(1)).first() is None:
         await collect_market_indices(session)
-    cfg = get_runtime_config(session)
+    cfg = get_runtime_config(session, user_id=user_id)
     context = build_market_index_context(session)
     result = await DeepSeekClient(cfg).complete(
         "请根据四项指数的最新值和历史走势给出简要分析。重点说明股票与债券市场风险情绪是否一致、"
         "近一周和近一月的主要变化、需要继续观察的风险。不要预测确定方向，不超过500字，结尾注明非投资建议。",
         context,
     )
-    _record_ai_usage(session, "market_indices", cfg.deepseek_model, result)
-    analysis = MarketIndexAnalysis(content=result.content, context=context)
+    _record_ai_usage(session, "market_indices", cfg.deepseek_model, result, user_id=user_id)
+    analysis = MarketIndexAnalysis(user_id=user_id, content=result.content, context=context)
     session.add(analysis)
     session.commit()
     session.refresh(analysis)
@@ -361,6 +401,7 @@ def build_context(
     new_since: datetime | None = None,
     strict_new_since: bool = False,
     max_chars: int | None = None,
+    allowed_stock_ids: list[int] | None = None,
 ) -> str:
     pieces: list[str] = []
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
@@ -369,7 +410,12 @@ def build_context(
         for item_id, stock in stocks.items()
         if item_id is not None and markets is not None and stock.market.upper() in markets
     ]
+    if allowed_stock_ids is not None:
+        allowed_set = set(allowed_stock_ids)
+        market_stock_ids = [item_id for item_id in market_stock_ids if item_id in allowed_set]
     query_stock_ids = _matched_stock_ids(stocks, query) if query else []
+    if allowed_stock_ids is not None:
+        query_stock_ids = [item_id for item_id in query_stock_ids if item_id in allowed_set]
     quote_stmt = select(MarketQuote)
     history_stmt = select(HistoricalPrice)
     trading_stmt = select(TradingData)
@@ -402,9 +448,19 @@ def build_context(
         institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id.in_(query_stock_ids))
         news_stmt = news_stmt.where(NewsItem.stock_id.in_(query_stock_ids))
         announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(query_stock_ids))
+    elif allowed_stock_ids is not None:
+        quote_stmt = quote_stmt.where(MarketQuote.stock_id.in_(allowed_stock_ids))
+        history_stmt = history_stmt.where(HistoricalPrice.stock_id.in_(allowed_stock_ids))
+        trading_stmt = trading_stmt.where(TradingData.stock_id.in_(allowed_stock_ids))
+        order_stmt = order_stmt.where(OrderBookSnapshot.stock_id.in_(allowed_stock_ids))
+        institutional_stmt = institutional_stmt.where(InstitutionalFlow.stock_id.in_(allowed_stock_ids))
+        news_stmt = news_stmt.where(NewsItem.stock_id.in_(allowed_stock_ids))
+        announcement_stmt = announcement_stmt.where(Announcement.stock_id.in_(allowed_stock_ids))
     if query and not query_stock_ids:
         like = f"%{query[:40]}%"
         news_stmt = select(NewsItem).where((NewsItem.title.like(like)) | (NewsItem.summary.like(like)))
+        if allowed_stock_ids is not None:
+            news_stmt = news_stmt.where(NewsItem.stock_id.in_(allowed_stock_ids))
 
     for quote in _prioritized_by_time(session, quote_stmt, MarketQuote.observed_at, 20, new_since, strict_new_since):
         pieces.append(
@@ -455,13 +511,18 @@ def _brief_scope_key(stock_id: int | None, markets: set[str] | None = None) -> s
     return "all"
 
 
-def _latest_brief_for_scope(session: Session, scope_key: str, stock_id: int | None) -> Brief | None:
-    brief = session.exec(
-        select(Brief).where(Brief.scope_key == scope_key).order_by(col(Brief.generated_at).desc()).limit(1)
-    ).first()
+def _latest_brief_for_scope(
+    session: Session,
+    scope_key: str,
+    stock_id: int | None,
+    user_id: int | None = None,
+) -> Brief | None:
+    stmt = select(Brief).where(Brief.scope_key == scope_key)
+    stmt = stmt.where(Brief.user_id == user_id) if user_id is not None else stmt.where(Brief.user_id == None)  # noqa: E711
+    brief = session.exec(stmt.order_by(col(Brief.generated_at).desc()).limit(1)).first()
     if brief is not None:
         return brief
-    legacy_stmt = select(Brief).where(Brief.scope_key == "").order_by(col(Brief.generated_at).desc()).limit(1)
+    legacy_stmt = select(Brief).where(Brief.scope_key == "", Brief.user_id == user_id).order_by(col(Brief.generated_at).desc()).limit(1)
     if scope_key == "all":
         legacy_stmt = legacy_stmt.where(Brief.stock_id == None)  # noqa: E711
     elif stock_id is not None:
@@ -469,6 +530,19 @@ def _latest_brief_for_scope(session: Session, scope_key: str, stock_id: int | No
     else:
         return None
     return session.exec(legacy_stmt).first()
+
+
+def _user_stock_ids(session: Session, user_id: int | None) -> list[int]:
+    if user_id is None:
+        return []
+    return list(
+        session.exec(
+            select(UserWatchlist.stock_id).where(
+                UserWatchlist.user_id == user_id,
+                UserWatchlist.active == True,  # noqa: E712
+            )
+        ).all()
+    )
 
 
 def _prioritized_by_time(
@@ -518,7 +592,10 @@ def _matched_stock_ids(stocks: dict[int | None, Stock], query: str) -> list[int]
 
 async def evaluate_alerts(session: Session) -> list[AlertEvent]:
     events: list[AlertEvent] = []
-    rules = session.exec(select(AlertRule).where(AlertRule.enabled == True)).all()  # noqa: E712
+    statement = select(AlertRule).where(AlertRule.enabled == True)  # noqa: E712
+    if settings.app_mode == "api":
+        statement = statement.join(User, User.id == AlertRule.user_id).where(User.status == "active")
+    rules = session.exec(statement).all()
     for rule in rules:
         quote = _latest_alert_quote(session, rule.stock_id)
         recent_news = session.exec(
@@ -529,14 +606,23 @@ async def evaluate_alerts(session: Session) -> list[AlertEvent]:
         ).all()
         if not should_trigger(rule, quote, recent_news):
             continue
+        if rule.rule_type == "ai_brief" and (
+            rule.user_id is None or not has_deepseek_key(session, rule.user_id)
+        ):
+            continue
         rule.last_triggered_at = datetime.now(timezone.utc)
         if rule.push_mode == "once":
             rule.enabled = False
         if rule.rule_type == "ai_brief":
-            await generate_daily_brief(session, stock_id=rule.stock_id, push=True)
+            await generate_daily_brief(session, stock_id=rule.stock_id, push=True, user_id=rule.user_id)
             session.add(rule)
         else:
-            event = AlertEvent(rule_id=rule.id or 0, stock_id=rule.stock_id, message=alert_message(rule, quote))
+            event = AlertEvent(
+                user_id=rule.user_id,
+                rule_id=rule.id or 0,
+                stock_id=rule.stock_id,
+                message=alert_message(rule, quote),
+            )
             session.add(rule)
             session.add(event)
             events.append(event)
@@ -544,20 +630,31 @@ async def evaluate_alerts(session: Session) -> list[AlertEvent]:
     return events
 
 
-async def push_pending_alert_events(session: Session, client: PushDeerClient | None = None) -> int:
+async def push_pending_alert_events(session: Session) -> int:
+    """将提醒写入微信站内通知队列。
+
+    函数名保留给已有调度入口，所有发送均改走站内通知和微信订阅消息。
+    """
     events = session.exec(
         select(AlertEvent).where(AlertEvent.pushed == False).order_by(col(AlertEvent.created_at)).limit(20)  # noqa: E712
     ).all()
     if not events:
         return 0
-    pusher = client or PushDeerClient(get_runtime_config(session))
     stocks = {stock.id: stock for stock in session.exec(select(Stock)).all()}
     pushed = 0
     for event in events:
-        stock_label = _stock_label(stocks, event.stock_id)
-        result = await pusher.push(f"Stock Alert: {stock_label}", f"{stock_label}\n\n{event.message}")
-        if not result.ok:
+        if event.user_id is None:
             continue
+        stock_label = _stock_label(stocks, event.stock_id)
+        create_notification(
+            session,
+            user_id=event.user_id,
+            notification_type="alert",
+            title=f"股票提醒：{stock_label}",
+            content=f"{stock_label}\n\n{event.message}",
+            page_path=f"/pages/alerts/detail?id={event.id}",
+            idempotency_key=f"alert:{event.id}",
+        )
         event.pushed = True
         session.add(event)
         pushed += 1
@@ -584,8 +681,18 @@ def _latest_alert_quote(session: Session, stock_id: int) -> MarketQuote | None:
     )
 
 
-def start_job(session: Session, name: str) -> FetchJobRun:
-    run = FetchJobRun(job_name=name, status="running")
+def start_job(
+    session: Session,
+    name: str,
+    user_id: int | None = None,
+    idempotency_key: str = "",
+) -> FetchJobRun:
+    run = FetchJobRun(
+        job_name=name,
+        status="running",
+        user_id=user_id,
+        idempotency_key=idempotency_key,
+    )
     session.add(run)
     session.commit()
     session.refresh(run)
@@ -737,9 +844,16 @@ def _article_digest(article: NormalizedArticle, stock_id: int | None = None) -> 
     return content_hash(str(stock_id or ""), identity)
 
 
-def _record_ai_usage(session: Session, feature: str, model: str, result: AiResult) -> None:
+def _record_ai_usage(
+    session: Session,
+    feature: str,
+    model: str,
+    result: AiResult,
+    user_id: int | None = None,
+) -> None:
     session.add(
         AiUsageLog(
+            user_id=user_id,
             feature=feature,
             model=model,
             prompt_tokens=result.prompt_tokens,

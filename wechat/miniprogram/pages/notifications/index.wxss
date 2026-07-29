@@ -1,0 +1,22 @@
+.header-row {
+  align-items: baseline;
+}
+
+.subscribe {
+  margin: 0;
+  padding: 0 18rpx;
+  font-size: 24rpx;
+}
+
+.notification.unread {
+  border-left: 8rpx solid #0878d1;
+}
+
+.content-preview {
+  display: -webkit-box;
+  margin: 12rpx 0;
+  overflow: hidden;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}

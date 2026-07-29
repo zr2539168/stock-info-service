@@ -1,0 +1,25 @@
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20rpx;
+}
+
+.summary-card {
+  box-sizing: border-box;
+}
+
+.quote-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.quote-row:last-child {
+  border-bottom: 0;
+}
+
+.quote-value {
+  text-align: right;
+}

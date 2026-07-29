@@ -1,0 +1,4 @@
+.detail-title {
+  margin-top: 0;
+  font-size: 36rpx;
+}

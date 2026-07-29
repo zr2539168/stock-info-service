@@ -1,0 +1,23 @@
+<view class="chat-page">
+  <view class="chat-toolbar">
+    <picker mode="selector" range="{{sessions}}" range-key="title" value="{{sessionIndex}}" bindchange="selectSession">
+      <view class="picker session-picker">{{currentSession.title || "选择对话"}} ▾</view>
+    </picker>
+    <button class="secondary compact" bindtap="newSession">新对话</button>
+    <button class="danger compact" bindtap="deleteSession">删除</button>
+  </view>
+  <view wx:if="{{error}}" class="error chat-error">{{error}}</view>
+  <scroll-view class="messages" scroll-y scroll-into-view="{{scrollIntoView}}">
+    <view wx:if="{{loading}}" class="empty">正在加载…</view>
+    <view wx:elif="{{!messages.length}}" class="empty">输入你想了解的股票或市场问题。回答只会引用已采集资料。</view>
+    <view wx:for="{{messages}}" wx:key="id" id="message-{{item.id}}" class="message {{item.role}}">
+      <view class="message-role">{{item.role === "user" ? "我" : "AI"}}</view>
+      <view class="content-text">{{item.content}}</view>
+      <view class="message-time">{{item.timeText}}</view>
+    </view>
+  </scroll-view>
+  <view class="composer">
+    <textarea class="question" value="{{question}}" bindinput="inputQuestion" maxlength="4000" auto-height placeholder="输入问题…" />
+    <button class="primary send" loading="{{sending}}" bindtap="send">发送</button>
+  </view>
+</view>

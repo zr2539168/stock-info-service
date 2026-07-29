@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from apscheduler.triggers.cron import CronTrigger
 from sqlmodel import Session
 
 from app.config import settings
 from app.models import AppSetting
 from app.schemas import RuntimeConfig
+from app.services.users import system_runtime_config, user_runtime_config
 
 
 MARKET_OPEN_BRIEFS_ENABLED_KEY = "market_open_briefs_enabled"
@@ -21,8 +23,6 @@ SETTING_KEYS = {
     "deepseek_api_key": True,
     "deepseek_base_url": False,
     "deepseek_model": False,
-    "pushdeer_pushkey": True,
-    "pushdeer_endpoint": False,
     COLLECTION_ENABLED_KEY: False,
     COLLECT_ALL_CRON_KEY: False,
     MARKET_OPEN_BRIEFS_ENABLED_KEY: False,
@@ -52,13 +52,21 @@ def set_setting(session: Session, key: str, value: str, secret: bool | None = No
     session.commit()
 
 
-def get_runtime_config(session: Session) -> RuntimeConfig:
+def get_runtime_config(session: Session, user_id: int | None = None) -> RuntimeConfig:
+    if user_id is not None:
+        return user_runtime_config(session, user_id)
+    legacy_key = get_setting(session, "deepseek_api_key", "")
+    if legacy_key:
+        return RuntimeConfig(
+            deepseek_api_key=legacy_key,
+            deepseek_base_url=get_setting(session, "deepseek_base_url", settings.deepseek_base_url),
+            deepseek_model=get_setting(session, "deepseek_model", settings.deepseek_model),
+        )
+    config = system_runtime_config(session)
     return RuntimeConfig(
-        deepseek_api_key=get_setting(session, "deepseek_api_key", settings.deepseek_api_key),
-        deepseek_base_url=get_setting(session, "deepseek_base_url", settings.deepseek_base_url),
-        deepseek_model=get_setting(session, "deepseek_model", settings.deepseek_model),
-        pushdeer_pushkey=get_setting(session, "pushdeer_pushkey", settings.pushdeer_pushkey),
-        pushdeer_endpoint=get_setting(session, "pushdeer_endpoint", settings.pushdeer_endpoint),
+        deepseek_api_key=config.deepseek_api_key,
+        deepseek_base_url=config.deepseek_base_url,
+        deepseek_model=get_setting(session, "deepseek_model", config.deepseek_model),
     )
 
 
@@ -85,6 +93,15 @@ def get_collection_settings(session: Session) -> tuple[bool, str]:
         enabled.lower() in {"1", "true", "yes", "on"},
         get_setting(session, COLLECT_ALL_CRON_KEY, settings.collect_all_cron),
     )
+
+
+def validate_collection_cron(value: str) -> str:
+    cron = " ".join(value.strip().split())
+    try:
+        CronTrigger.from_crontab(cron)
+    except ValueError as exc:
+        raise ValueError("采集计划必须是有效的五段 Cron 表达式") from exc
+    return cron
 
 
 def workday_time_to_cron(value: str) -> str:
@@ -154,8 +171,6 @@ def all_settings(session: Session) -> dict[str, str]:
         "deepseek_api_key": cfg.deepseek_api_key,
         "deepseek_base_url": cfg.deepseek_base_url,
         "deepseek_model": cfg.deepseek_model,
-        "pushdeer_pushkey": cfg.pushdeer_pushkey,
-        "pushdeer_endpoint": cfg.pushdeer_endpoint,
         "collection_enabled": "true" if collection_enabled else "false",
         "collect_all_cron": collect_all_cron,
         "market_open_briefs_enabled": "true" if market_open_enabled else "false",

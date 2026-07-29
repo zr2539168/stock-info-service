@@ -1,0 +1,182 @@
+/**app.wxss**/
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+button {
+  background: initial;
+}
+
+button:focus{
+  outline: 0;
+}
+
+button::after{
+  border: none;
+}
+
+
+page {
+  background: #f6f6f6;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+page {
+  min-height: 100%;
+  background: #f3f6fa;
+  color: #142033;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.page {
+  padding: 28rpx;
+  box-sizing: border-box;
+}
+
+.page-title {
+  margin: 8rpx 0 24rpx;
+  font-size: 44rpx;
+  font-weight: 700;
+}
+
+.subtitle,
+.muted {
+  color: #6b7785;
+  font-size: 26rpx;
+}
+
+.card {
+  margin-bottom: 22rpx;
+  padding: 28rpx;
+  border: 1rpx solid #dce3ec;
+  border-radius: 18rpx;
+  background: #ffffff;
+  box-shadow: 0 8rpx 30rpx rgba(15, 35, 60, 0.05);
+}
+
+.card-title {
+  margin-bottom: 14rpx;
+  font-size: 32rpx;
+  font-weight: 650;
+}
+
+.row,
+.row-between {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.row-between {
+  justify-content: space-between;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.button,
+button.primary {
+  border: 0;
+  border-radius: 12rpx;
+  background: #0878d1;
+  color: white;
+  font-size: 28rpx;
+}
+
+button.secondary {
+  border: 1rpx solid #b8c5d4;
+  background: white;
+  color: #26384a;
+}
+
+button.danger {
+  border: 1rpx solid #d94b4b;
+  background: white;
+  color: #c63737;
+}
+
+button[disabled] {
+  opacity: 0.5;
+}
+
+input,
+textarea,
+picker {
+  box-sizing: border-box;
+}
+
+.input,
+.textarea,
+.picker {
+  width: 100%;
+  padding: 20rpx;
+  border: 1rpx solid #cbd5e1;
+  border-radius: 12rpx;
+  background: white;
+}
+
+.textarea {
+  min-height: 180rpx;
+}
+
+.metric {
+  font-size: 40rpx;
+  font-weight: 700;
+}
+
+.up {
+  color: #cf3f3f;
+}
+
+.down {
+  color: #16855b;
+}
+
+.tag {
+  display: inline-flex;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+  background: #eaf3fb;
+  color: #0878d1;
+  font-size: 24rpx;
+}
+
+.empty {
+  padding: 70rpx 24rpx;
+  color: #7a8795;
+  text-align: center;
+}
+
+.error {
+  margin-bottom: 20rpx;
+  padding: 18rpx;
+  border-radius: 12rpx;
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.divider {
+  height: 1rpx;
+  margin: 20rpx 0;
+  background: #e5eaf0;
+}
+
+.link {
+  color: #0878d1;
+}
+
+.content-text {
+  white-space: pre-wrap;
+  line-height: 1.65;
+}

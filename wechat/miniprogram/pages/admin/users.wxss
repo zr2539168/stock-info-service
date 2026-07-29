@@ -1,0 +1,9 @@
+.actions {
+  margin-top: 22rpx;
+}
+
+button.compact {
+  margin: 0;
+  padding: 0 18rpx;
+  font-size: 23rpx;
+}

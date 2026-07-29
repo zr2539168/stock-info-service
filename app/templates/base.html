@@ -14,14 +14,22 @@
     <a class="brand" href="/">Stock Info</a>
     <nav>
       <a href="/">概览</a>
+      {% if app_mode != "admin" %}
       <a href="/watchlist">自选股</a>
+      {% endif %}
       <a href="/info">信息库</a>
       <a href="/indices">指数</a>
+      {% if app_mode != "admin" %}
       <a href="/briefs">简报</a>
       <a href="/chat">AI 对话</a>
       <a href="/alerts">监控</a>
+      {% endif %}
       <a href="/settings">设置</a>
       <a href="/jobs">任务</a>
+      <a href="/users">用户审核</a>
+      {% if app_mode == "admin" %}
+      <form method="post" action="/admin/logout"><button class="nav-button" type="submit">退出管理台</button></form>
+      {% endif %}
     </nav>
   </aside>
   <main class="content">

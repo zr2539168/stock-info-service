@@ -1,0 +1,12 @@
+<view class="page">
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <view wx:elif="{{item}}" class="card">
+    <view class="page-title detail-title">{{item.title}}</view>
+    <view class="muted">{{item.generatedText}}</view>
+    <view class="divider"></view>
+    <view class="content-text">{{item.content}}</view>
+    <view class="divider"></view>
+    <button class="danger" bindtap="remove">删除这份简报</button>
+  </view>
+</view>

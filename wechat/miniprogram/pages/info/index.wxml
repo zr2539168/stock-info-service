@@ -1,0 +1,21 @@
+<view class="page">
+  <view class="row-between heading-row">
+    <view class="page-title">信息库</view>
+    <picker mode="selector" range="{{categories}}" range-key="name" value="{{categoryIndex}}" bindchange="selectCategory">
+      <view class="picker compact-picker">{{categories[categoryIndex].name}} ▾</view>
+    </picker>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:for="{{items}}" wx:key="id" class="card">
+    <view class="card-title">{{item.displayTitle}}</view>
+    <view class="muted">{{item.stockText}} · {{item.timeText}} · {{item.source || "未知来源"}}</view>
+    <view wx:if="{{item.displaySummary}}" class="summary">{{item.displaySummary}}</view>
+    <view class="row wrap actions">
+      <button wx:if="{{item.url}}" class="secondary compact" data-url="{{item.url}}" bindtap="copyLink">复制来源链接</button>
+      <button wx:if="{{isAdmin}}" class="danger compact" data-id="{{item.id}}" bindtap="remove">管理员删除</button>
+    </view>
+  </view>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <view wx:elif="{{!items.length}}" class="empty">暂无数据</view>
+  <button wx:if="{{nextCursor && !loading}}" class="secondary" bindtap="loadMore">加载更多</button>
+</view>

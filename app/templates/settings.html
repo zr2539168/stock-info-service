@@ -3,43 +3,16 @@
 <header class="page-head"><h1>设置</h1></header>
 {% if message %}<div class="notice">{{ message }}</div>{% endif %}
 <section class="panel narrow">
+  <h2>全局采集</h2>
   <form method="post" action="/settings" class="settings-form">
-    <label>DeepSeek API Key <span>{{ settings.deepseek_api_key_masked or "未配置" }}</span></label>
-    <input name="deepseek_api_key" type="password" placeholder="留空表示不修改">
-    <label>DeepSeek Base URL</label>
-    <input name="deepseek_base_url" value="{{ settings.deepseek_base_url }}" required>
-    <label>DeepSeek Model</label>
-    <input name="deepseek_model" value="{{ settings.deepseek_model }}" required>
-    <label>PushDeer PushKey <span>{{ settings.pushdeer_pushkey_masked or "未配置" }}</span></label>
-    <input name="pushdeer_pushkey" type="password" placeholder="留空表示不修改">
-    <label>PushDeer Endpoint</label>
-    <input name="pushdeer_endpoint" value="{{ settings.pushdeer_endpoint }}" required>
     <label class="inline-check">
       <input name="collection_enabled" type="checkbox" value="true" {% if settings.collection_enabled == "true" %}checked{% endif %}>
       开启后台定时抓取信息
     </label>
-    <p class="muted">服务启动后默认开启，每 1 小时抓取一次全部信息；关闭后仍可在任务页手动抓取。</p>
-    <label class="inline-check">
-      <input name="daily_noon_brief_enabled" type="checkbox" value="true" {% if settings.daily_noon_brief_enabled == "true" %}checked{% endif %}>
-      开启每天最新 24 小时简报推送
-    </label>
-    <label>每日 24 小时简报时间（北京时间） <span>默认 12:00，可手动调整</span></label>
-    <input name="daily_noon_brief_time" type="time" value="{{ settings.daily_noon_brief_time or '12:00' }}" required>
-    <p class="muted">每天按设定时间自动抓取全部信息，只汇总最近 24 小时的新资料，生成 AI 简报并通过 PushDeer 推送。</p>
-    <label class="inline-check">
-      <input name="market_open_briefs_enabled" type="checkbox" value="true" {% if settings.market_open_briefs_enabled == "true" %}checked{% endif %}>
-      开启开盘后简报
-    </label>
-    <label>开盘后简报时间（A 股/港股，北京时间） <span>基于已抓取的 A 股/港股自选股信息生成并推送</span></label>
-    <input name="cn_open_brief_time" type="time" value="{{ settings.cn_open_brief_time }}" required>
-    <label>开盘后简报时间（美股，纽约时间） <span>基于已抓取的美股自选股信息生成并推送</span></label>
-    <input name="us_open_brief_time" type="time" value="{{ settings.us_open_brief_time }}" required>
+    <label>采集 Cron（五段）<input name="collect_all_cron" value="{{ settings.collect_all_cron }}" required></label>
+    <p class="muted">默认每小时抓取所有用户启用自选股的并集，并同步市场指数。用户的 DeepSeek Key、简报时间和微信通知授权在小程序内单独设置。</p>
     <button type="submit">保存配置</button>
   </form>
-  <div class="button-row">
-    <form method="post" action="/settings/test-deepseek"><button type="submit">测试 DeepSeek</button></form>
-    <form method="post" action="/settings/test-pushdeer"><button type="submit">测试 PushDeer</button></form>
-  </div>
 </section>
 {% endblock %}
 

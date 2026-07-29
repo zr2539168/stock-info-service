@@ -1,0 +1,29 @@
+.job-buttons {
+  margin-top: 24rpx;
+}
+
+button.compact {
+  margin: 0;
+  padding: 0 18rpx;
+  font-size: 23rpx;
+}
+
+.job-row {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.job-error {
+  margin-top: 8rpx;
+  color: #b42318;
+  font-size: 24rpx;
+}
+
+.schedule-row {
+  margin-top: 20rpx;
+  gap: 16rpx;
+}
+
+.schedule-row .input {
+  flex: 1;
+}

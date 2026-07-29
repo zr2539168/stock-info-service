@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.config import mask_secret, settings
+from app.config import mask_secret, settings, validate_cloud_settings
+from app.api import ApiError, internal_router, router as api_router
 from app.database import engine, get_session, init_db
 from app.markdown import render_markdown
 from app.presentation import clean_text, format_beijing_time, replace_stock_refs
@@ -20,6 +26,7 @@ from app.models import (
     AlertEvent,
     AlertRule,
     Announcement,
+    AuditLog,
     Brief,
     ChatMessage,
     ChatSession,
@@ -34,6 +41,7 @@ from app.models import (
     OrderBookSnapshot,
     Stock,
     TradingData,
+    User,
 )
 from app.scheduler import (
     apply_collection_settings,
@@ -41,8 +49,6 @@ from app.scheduler import (
     apply_market_open_brief_settings,
     build_scheduler,
     configure_collection_job,
-    configure_daily_noon_brief_job,
-    configure_market_open_brief_jobs,
 )
 from app.services.ai import DeepSeekClient, fallback_chat_title
 from app.services.collector import (
@@ -61,9 +67,9 @@ from app.services.collector import (
     start_job,
 )
 from app.services.data_sources import MARKET_INDEX_DEFINITIONS, StockIdentityProvider
-from app.services.pushdeer import PushDeerClient
 from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
-from app.services.settings_service import all_settings, daily_time_to_cron, get_runtime_config, set_setting, workday_time_to_cron
+from app.services.settings_service import all_settings, get_runtime_config, set_setting, validate_collection_cron
+from app.web_auth import authenticate_web_admin, router as web_auth_router
 
 
 templates = Jinja2Templates(directory="app/templates")
@@ -75,23 +81,138 @@ templates.env.globals["asset_version"] = lambda: max(
     Path("app/static/styles.css").stat().st_mtime_ns,
     Path("app/static/app.js").stat().st_mtime_ns,
 )
+templates.env.globals["app_mode"] = settings.app_mode
 scheduler = build_scheduler()
 stock_identity_provider = StockIdentityProvider()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_cloud_settings()
     init_db()
-    apply_collection_settings(scheduler)
-    apply_market_open_brief_settings(scheduler)
-    apply_daily_noon_brief_settings(scheduler)
-    scheduler.start()
+    scheduler_started = False
+    if settings.app_mode in {"local", "api"}:
+        apply_collection_settings(scheduler)
+        if settings.app_mode == "local":
+            apply_market_open_brief_settings(scheduler)
+            apply_daily_noon_brief_settings(scheduler)
+        scheduler.start()
+        scheduler_started = True
     yield
-    scheduler.shutdown(wait=False)
+    if scheduler_started:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.include_router(api_router)
+app.include_router(internal_router)
+app.include_router(web_auth_router)
+
+
+@app.exception_handler(ApiError)
+async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
+    request_id = _request_id(request)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.code, "message": exc.message, "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request_id = _request_id(request)
+    first_error = exc.errors()[0] if exc.errors() else {}
+    message = str(first_error.get("msg", "请求参数无效"))
+    return JSONResponse(
+        status_code=422,
+        content={"code": "INVALID_REQUEST", "message": message, "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    request_id = _request_id(request)
+    code = "NOT_FOUND" if exc.status_code == 404 else "HTTP_ERROR"
+    message = "接口不存在" if exc.status_code == 404 else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": code, "message": message, "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = _request_id(request)
+    logger.exception("Unhandled request error request_id=%s", request_id, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"code": "INTERNAL_ERROR", "message": "服务暂时不可用", "request_id": request_id},
+        headers={"X-Request-ID": request_id},
+    )
+
+
+def _request_id(request: Request) -> str:
+    return request.headers.get("x-cloudbase-request-id") or request.headers.get("x-request-id") or uuid4().hex
+
+
+@app.middleware("http")
+async def deployment_mode_guard(request: Request, call_next):
+    path = request.url.path
+    if settings.app_mode == "api":
+        if not path.startswith(("/api/v1", "/internal", "/healthz")):
+            request_id = _request_id(request)
+            return JSONResponse(
+                status_code=404,
+                content={"code": "NOT_FOUND", "message": "接口不存在", "request_id": request_id},
+                headers={"X-Request-ID": request_id},
+            )
+    elif settings.app_mode == "admin":
+        if path.startswith(("/api/v1", "/internal")):
+            request_id = _request_id(request)
+            return JSONResponse(
+                status_code=404,
+                content={"code": "NOT_FOUND", "message": "管理员服务不开放小程序 API", "request_id": request_id},
+                headers={"X-Request-ID": request_id},
+            )
+        public_path = path.startswith(("/admin/login", "/static", "/healthz"))
+        if not public_path:
+            with Session(engine) as auth_session:
+                admin = authenticate_web_admin(request, auth_session)
+            if admin is None:
+                return RedirectResponse("/admin/login", status_code=303)
+            request.state.admin_user = admin
+            private_web_prefixes = ("/watchlist", "/briefs", "/chat", "/alerts")
+            if any(path == prefix or path.startswith(f"{prefix}/") for prefix in private_web_prefixes):
+                request_id = _request_id(request)
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": "NOT_FOUND", "message": "管理员控制台不提供用户私有数据入口", "request_id": request_id},
+                    headers={"X-Request-ID": request_id},
+                )
+    response = await call_next(request)
+    admin = getattr(request.state, "admin_user", None)
+    if settings.app_mode == "admin" and admin is not None and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        with Session(engine) as audit_session:
+            audit_session.add(
+                AuditLog(
+                    user_id=admin.id,
+                    action="web_mutation",
+                    target=f"{request.method} {path}",
+                    detail=f"status={response.status_code}",
+                )
+            )
+            audit_session.commit()
+    return response
+
+
+@app.get("/healthz")
+def healthcheck() -> dict[str, str]:
+    return {"status": "ok", "mode": settings.app_mode}
 
 def redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
@@ -125,8 +246,12 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
         ).first()
         for stock in stocks
     }
-    briefs = session.exec(select(Brief).order_by(col(Brief.generated_at).desc()).limit(5)).all()
-    events = session.exec(select(AlertEvent).order_by(col(AlertEvent.created_at).desc()).limit(8)).all()
+    briefs = [] if settings.app_mode == "admin" else session.exec(
+        select(Brief).order_by(col(Brief.generated_at).desc()).limit(5)
+    ).all()
+    events = [] if settings.app_mode == "admin" else session.exec(
+        select(AlertEvent).order_by(col(AlertEvent.created_at).desc()).limit(8)
+    ).all()
     jobs = session.exec(select(FetchJobRun).order_by(col(FetchJobRun.started_at).desc()).limit(8)).all()
     return templates.TemplateResponse(
         request,
@@ -222,7 +347,10 @@ def market_indices(request: Request, session: Session = Depends(get_session)):
             }
         )
     analysis = session.exec(
-        select(MarketIndexAnalysis).order_by(col(MarketIndexAnalysis.generated_at).desc()).limit(1)
+        select(MarketIndexAnalysis)
+        .where(MarketIndexAnalysis.user_id == None)  # noqa: E711
+        .order_by(col(MarketIndexAnalysis.generated_at).desc())
+        .limit(1)
     ).first()
     return templates.TemplateResponse(
         request,
@@ -486,6 +614,13 @@ def toggle_alert(rule_id: int, session: Session = Depends(get_session)):
 def delete_alert(rule_id: int, session: Session = Depends(get_session)):
     rule = session.get(AlertRule, rule_id)
     if rule:
+        events = session.exec(select(AlertEvent).where(AlertEvent.rule_id == rule_id)).all()
+        for event in events:
+            if session.get_bind().dialect.name == "sqlite":
+                session.delete(event)
+            else:
+                event.rule_id = None
+                session.add(event)
         session.delete(rule)
         session.commit()
     return redirect("/alerts")
@@ -496,61 +631,60 @@ def settings_page(request: Request, session: Session = Depends(get_session)):
     values = all_settings(session)
     masked = values | {
         "deepseek_api_key_masked": mask_secret(values["deepseek_api_key"]),
-        "pushdeer_pushkey_masked": mask_secret(values["pushdeer_pushkey"]),
+        "app_mode": settings.app_mode,
     }
     return templates.TemplateResponse(request, "settings.html", {"settings": masked, "message": ""})
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request, session: Session = Depends(get_session)):
+    users = session.exec(select(User).order_by(col(User.created_at).desc())).all()
+    return templates.TemplateResponse(request, "users.html", {"users": users})
+
+
+@app.post("/users/{user_id}")
+def update_user_from_web(
+    request: Request,
+    user_id: int,
+    status: str = Form(...),
+    role: str = Form("user"),
+    session: Session = Depends(get_session),
+):
+    if status not in {"pending", "active", "disabled"} or role not in {"user", "admin"}:
+        return redirect("/users")
+    user = session.get(User, user_id)
+    if user is not None:
+        current_admin = getattr(request.state, "admin_user", None)
+        protected_admin = user.openid in settings.admin_openids or (
+            current_admin is not None and user.id == current_admin.id
+        )
+        if protected_admin and (status != "active" or role != "admin"):
+            return redirect("/users")
+        user.status = status
+        user.role = role
+        if status == "active":
+            user.approved_at = user.approved_at or datetime.now(timezone.utc)
+        session.add(user)
+        session.commit()
+    return redirect("/users")
 
 
 @app.post("/settings")
 def save_settings(
     request: Request,
-    deepseek_api_key: str = Form(""),
-    deepseek_base_url: str = Form(...),
-    deepseek_model: str = Form(...),
-    pushdeer_pushkey: str = Form(""),
-    pushdeer_endpoint: str = Form(...),
     collection_enabled: bool = Form(False),
-    market_open_briefs_enabled: bool = Form(False),
-    daily_noon_brief_enabled: bool = Form(False),
-    daily_noon_brief_time: str = Form(...),
-    cn_open_brief_time: str = Form(...),
-    us_open_brief_time: str = Form(...),
+    collect_all_cron: str = Form("0 * * * *"),
     session: Session = Depends(get_session),
 ):
     try:
-        cn_open_brief_cron = workday_time_to_cron(cn_open_brief_time)
-        us_open_brief_cron = workday_time_to_cron(us_open_brief_time)
-        daily_noon_brief_cron = daily_time_to_cron(daily_noon_brief_time)
+        cron = validate_collection_cron(collect_all_cron)
     except ValueError as exc:
         values = all_settings(session)
-        values |= {
-            "deepseek_api_key_masked": mask_secret(values["deepseek_api_key"]),
-            "pushdeer_pushkey_masked": mask_secret(values["pushdeer_pushkey"]),
-        }
+        values |= {"deepseek_api_key_masked": "", "app_mode": settings.app_mode}
         return templates.TemplateResponse(request, "settings.html", {"settings": values, "message": str(exc)})
-
-    if deepseek_api_key.strip():
-        set_setting(session, "deepseek_api_key", deepseek_api_key.strip())
-    set_setting(session, "deepseek_base_url", deepseek_base_url.strip())
-    set_setting(session, "deepseek_model", deepseek_model.strip())
-    if pushdeer_pushkey.strip():
-        set_setting(session, "pushdeer_pushkey", pushdeer_pushkey.strip())
-    set_setting(session, "pushdeer_endpoint", pushdeer_endpoint.strip())
     set_setting(session, "collection_enabled", "true" if collection_enabled else "false")
-    set_setting(session, "collect_all_cron", "0 * * * *")
-    set_setting(session, "market_open_briefs_enabled", "true" if market_open_briefs_enabled else "false")
-    set_setting(session, "daily_noon_brief_enabled", "true" if daily_noon_brief_enabled else "false")
-    set_setting(session, "daily_noon_brief_cron", daily_noon_brief_cron)
-    set_setting(session, "cn_open_brief_cron", cn_open_brief_cron)
-    set_setting(session, "us_open_brief_cron", us_open_brief_cron)
-    configure_collection_job(scheduler, collection_enabled, "0 * * * *")
-    configure_market_open_brief_jobs(
-        scheduler,
-        market_open_briefs_enabled,
-        cn_open_brief_cron,
-        us_open_brief_cron,
-    )
-    configure_daily_noon_brief_job(scheduler, daily_noon_brief_enabled, daily_noon_brief_cron)
+    set_setting(session, "collect_all_cron", cron)
+    configure_collection_job(scheduler, collection_enabled, cron)
     return redirect("/settings")
 
 
@@ -560,21 +694,10 @@ async def test_deepseek(request: Request, session: Session = Depends(get_session
     values = all_settings(session)
     values |= {
         "deepseek_api_key_masked": mask_secret(values["deepseek_api_key"]),
-        "pushdeer_pushkey_masked": mask_secret(values["pushdeer_pushkey"]),
+        "app_mode": settings.app_mode,
     }
     message = "DeepSeek 连接成功" if result.ok else f"DeepSeek 测试失败：{result.error}"
     return templates.TemplateResponse(request, "settings.html", {"settings": values, "message": message})
-
-
-@app.post("/settings/test-pushdeer", response_class=HTMLResponse)
-async def test_pushdeer(request: Request, session: Session = Depends(get_session)):
-    result = await PushDeerClient(get_runtime_config(session)).test_push()
-    values = all_settings(session)
-    values |= {
-        "deepseek_api_key_masked": mask_secret(values["deepseek_api_key"]),
-        "pushdeer_pushkey_masked": mask_secret(values["pushdeer_pushkey"]),
-    }
-    return templates.TemplateResponse(request, "settings.html", {"settings": values, "message": result.message})
 
 
 @app.get("/jobs", response_class=HTMLResponse)

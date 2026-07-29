@@ -1,0 +1,44 @@
+<view class="page">
+  <view class="page-title">个人设置</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <block wx:elif="{{preference}}">
+    <view class="card stack">
+      <view class="card-title">DeepSeek</view>
+      <view class="muted">Key 只会在云端使用 AES-256-GCM 加密保存，小程序不会读取明文。</view>
+      <view class="row-between">
+        <text>当前状态</text>
+        <text class="tag">{{keyConfigured ? "已配置" : "未配置"}}</text>
+      </view>
+      <input class="input" password value="{{apiKey}}" bindinput="inputKey" placeholder="输入新的 DeepSeek API Key" />
+      <picker class="picker" mode="selector" range="{{models}}" value="{{modelIndex}}" bindchange="selectModel">
+        模型：{{models[modelIndex]}}
+      </picker>
+      <view class="row wrap">
+        <button class="secondary compact" loading="{{testing}}" bindtap="testKey">测试连接</button>
+        <button wx:if="{{keyConfigured}}" class="danger compact" bindtap="clearKey">清除 Key</button>
+      </view>
+    </view>
+    <view class="card stack">
+      <view class="card-title">自动简报</view>
+      <view class="row-between">
+        <text>每日最新 24 小时简报</text>
+        <switch checked="{{preference.daily_brief_enabled}}" data-field="daily_brief_enabled" bindchange="updatePreference" />
+      </view>
+      <picker class="picker" mode="time" value="{{preference.daily_brief_time}}" data-field="daily_brief_time" bindchange="updateTime">
+        每日时间（北京时间）：{{preference.daily_brief_time}}
+      </picker>
+      <view class="row-between">
+        <text>开盘后简报</text>
+        <switch checked="{{preference.market_open_briefs_enabled}}" data-field="market_open_briefs_enabled" bindchange="updatePreference" />
+      </view>
+      <picker class="picker" mode="time" value="{{preference.cn_open_brief_time}}" data-field="cn_open_brief_time" bindchange="updateTime">
+        A/H 股（北京时间）：{{preference.cn_open_brief_time}}
+      </picker>
+      <picker class="picker" mode="time" value="{{preference.us_open_brief_time}}" data-field="us_open_brief_time" bindchange="updateTime">
+        美股（纽约时间）：{{preference.us_open_brief_time}}
+      </picker>
+      <button class="primary" loading="{{saving}}" bindtap="save">保存全部设置</button>
+    </view>
+  </block>
+</view>

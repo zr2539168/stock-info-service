@@ -1,0 +1,33 @@
+<view class="page">
+  <view class="page-title">采集任务</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="card">
+    <view class="row-between">
+      <view>
+        <view class="card-title">每小时自动采集</view>
+        <view class="muted">覆盖全部用户启用自选股和四类市场指数</view>
+      </view>
+      <switch checked="{{collectionEnabled}}" bindchange="toggleCollection" />
+    </view>
+    <view class="row schedule-row">
+      <input class="input" value="{{collectionCron}}" bindinput="inputCron" placeholder="五段 Cron，如 0 * * * *" />
+      <button class="secondary compact" bindtap="saveSchedule">保存计划</button>
+    </view>
+    <view class="row wrap job-buttons">
+      <button wx:for="{{jobs}}" wx:key="key" class="secondary compact" disabled="{{running}}" data-job="{{item.key}}" bindtap="run">{{item.label}}</button>
+    </view>
+  </view>
+  <view class="card">
+    <view class="card-title">最近任务</view>
+    <view wx:if="{{loading}}" class="empty">正在加载…</view>
+    <view wx:elif="{{!items.length}}" class="empty">暂无任务记录</view>
+    <view wx:for="{{items}}" wx:key="id" class="job-row">
+      <view class="row-between">
+        <text>{{item.job_name}}</text>
+        <text class="tag">{{item.status}}</text>
+      </view>
+      <view class="muted">{{item.startedText}} → {{item.endedText}}</view>
+      <view wx:if="{{item.error}}" class="job-error">{{item.error}}</view>
+    </view>
+  </view>
+</view>

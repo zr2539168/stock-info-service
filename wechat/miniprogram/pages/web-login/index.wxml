@@ -1,0 +1,20 @@
+<view class="page">
+  <view class="page-title">Web 登录确认</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{user && user.role !== 'admin'}}" class="error">当前微信账号不是管理员，不能登录 Web 管理台。</view>
+  <view wx:elif="{{confirmed}}" class="card success-card">
+    <view class="card-title">登录已确认</view>
+    <view>Web 管理台将自动建立安全会话。此登录码不能再次使用。</view>
+  </view>
+  <view wx:elif="{{cancelled}}" class="card">
+    <view class="card-title">登录已取消</view>
+    <view>Web 管理台不会建立会话，此登录码不能再次使用。</view>
+  </view>
+  <view wx:else class="card stack">
+    <view class="card-title">确认管理员登录</view>
+    <view class="muted">请核对这是你刚刚在 Web 管理台发起的登录。登录码 2 分钟内有效且只能使用一次。</view>
+    <input class="input" value="{{challenge}}" bindinput="inputChallenge" maxlength="32" placeholder="扫描小程序码后会自动填写，也可手动输入" />
+    <button class="primary" disabled="{{!challenge || !user || user.role !== 'admin'}}" loading="{{confirming}}" bindtap="confirm">确认登录 Web 管理台</button>
+    <button class="secondary" disabled="{{!challenge || !user || user.role !== 'admin'}}" bindtap="cancel">取消本次登录</button>
+  </view>
+</view>

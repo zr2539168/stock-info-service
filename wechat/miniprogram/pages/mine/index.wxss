@@ -1,0 +1,33 @@
+.pending-box {
+  margin-top: 20rpx;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  background: #fff7df;
+  color: #805b00;
+  line-height: 1.6;
+}
+
+.name-row {
+  margin-top: 24rpx;
+}
+
+.save-name {
+  flex: none;
+  margin: 0;
+}
+
+.menu-card {
+  padding-top: 12rpx;
+  padding-bottom: 12rpx;
+}
+
+.menu-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 28rpx 4rpx;
+  border-bottom: 1rpx solid #edf1f5;
+}
+
+.menu-item:last-child {
+  border-bottom: 0;
+}

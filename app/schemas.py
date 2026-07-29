@@ -104,5 +104,3 @@ class RuntimeConfig:
     deepseek_api_key: str
     deepseek_base_url: str
     deepseek_model: str
-    pushdeer_pushkey: str
-    pushdeer_endpoint: str

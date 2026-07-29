@@ -6,12 +6,18 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlmodel import Session, select
 
 from app.config import settings
 from app.database import engine
 from app.models import FetchJobRun
-from app.services.job_lock import acquire_collection_job_lock, release_collection_job_lock
+from app.services.job_lock import (
+    acquire_collection_job_lock,
+    acquire_job_lease,
+    release_collection_job_lock,
+    release_job_lease,
+)
 from app.services.market_calendar import is_market_trading_day
 from app.services.settings_service import (
     cron_to_workday_time,
@@ -26,6 +32,7 @@ from app.services.collector import (
     push_pending_alert_events,
     start_job,
 )
+from app.services.user_scheduler import run_due_user_briefs_job
 
 
 BRIEF_COLLECTION_WAIT_SECONDS = 60 * 60
@@ -34,6 +41,16 @@ BRIEF_COLLECTION_WAIT_SECONDS = 60 * 60
 def build_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=settings.timezone)
     configure_collection_job(scheduler, settings.collection_enabled, settings.collect_all_cron)
+    if settings.app_mode == "api":
+        scheduler.add_job(
+            run_due_user_briefs_job,
+            IntervalTrigger(minutes=1),
+            id="due_user_briefs",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
+        return scheduler
     configure_market_open_brief_jobs(
         scheduler,
         settings.market_open_briefs_enabled,
@@ -119,18 +136,28 @@ def apply_daily_noon_brief_settings(scheduler: BackgroundScheduler) -> None:
 
 def _run_collect_all_job() -> None:
     with Session(engine) as session:
+        lease_owner = None
+        if settings.app_mode == "api":
+            lease_owner = acquire_job_lease(session, "collection:global", ttl_seconds=3600)
+            if lease_owner is None:
+                return
         run, locked, _ = _start_locked_job(session, "collect_all")
         if not locked:
+            if lease_owner is not None:
+                release_job_lease(session, "collection:global", lease_owner)
             return
         try:
             asyncio.run(collect_all_information(session))
             asyncio.run(push_pending_alert_events(session))
-            _run_due_market_open_briefs_after_collection(session)
+            if settings.app_mode == "local":
+                _run_due_market_open_briefs_after_collection(session)
             finish_job(session, run, "success")
         except Exception as exc:
             finish_job(session, run, "failed", str(exc))
         finally:
             release_collection_job_lock()
+            if lease_owner is not None:
+                release_job_lease(session, "collection:global", lease_owner)
 
 
 def _run_cn_open_brief_job() -> None:

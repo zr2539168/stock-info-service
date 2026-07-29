@@ -3,16 +3,18 @@
 <header class="page-head">
   <div>
     <h1>市场概览</h1>
-    <p>自选股、最新提醒、AI 简报和采集任务状态。</p>
+    <p>{% if app_mode == "admin" %}共享证券、行情与采集任务状态。{% else %}自选股、最新提醒、AI 简报和采集任务状态。{% endif %}</p>
   </div>
+  {% if app_mode != "admin" %}
   <form method="post" action="/briefs/generate" data-progress="正在生成并推送 AI 简报">
     <button type="submit">生成并推送简报</button>
   </form>
+  {% endif %}
 </header>
 
 <section class="grid three">
   <div class="panel">
-    <h2>自选股</h2>
+    <h2>{% if app_mode == "admin" %}共享证券{% else %}自选股{% endif %}</h2>
     <table>
       <thead><tr><th>代码</th><th>价格</th><th>涨跌幅</th></tr></thead>
       <tbody>
@@ -27,14 +29,14 @@
       </tbody>
     </table>
   </div>
-  <div class="panel">
+  {% if app_mode != "admin" %}<div class="panel">
     <h2>最新提醒</h2>
     {% for event in events %}
       <article class="item"><strong>{{ event.created_at | beijing_time }}</strong><p>{{ event.message }}</p></article>
     {% else %}
       <p class="muted">暂无触发提醒。</p>
     {% endfor %}
-  </div>
+  </div>{% endif %}
   <div class="panel">
     <h2>任务状态</h2>
     {% for job in jobs %}
@@ -45,7 +47,7 @@
   </div>
 </section>
 
-<section class="panel wide">
+{% if app_mode != "admin" %}<section class="panel wide">
   <h2>最新简报</h2>
   {% for brief in briefs %}
     <article class="brief">
@@ -55,5 +57,5 @@
   {% else %}
     <p class="muted">还没有简报，可以先添加自选股并手动生成。</p>
   {% endfor %}
-</section>
+</section>{% endif %}
 {% endblock %}

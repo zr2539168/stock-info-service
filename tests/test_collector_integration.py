@@ -2,8 +2,24 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from datetime import datetime, timezone
 
-from app.models import AiUsageLog, AlertEvent, AlertRule, HistoricalPrice, InstitutionalFlow, MarketQuote, NewsItem, Stock
-from app.schemas import NormalizedArticle, NormalizedInstitutionalFlow, NormalizedQuote, NormalizedTradingData
+from app.models import (
+    AiUsageLog,
+    AlertEvent,
+    AlertRule,
+    HistoricalPrice,
+    InstitutionalFlow,
+    MarketQuote,
+    NewsItem,
+    Stock,
+    User,
+    UserWatchlist,
+)
+from app.schemas import (
+    NormalizedArticle,
+    NormalizedInstitutionalFlow,
+    NormalizedQuote,
+    NormalizedTradingData,
+)
 from app.services.ai import AiResult
 from app.services.collector import (
     build_context,
@@ -11,7 +27,6 @@ from app.services.collector import (
     collect_news,
     collect_quotes,
     generate_daily_brief,
-    push_pending_alert_events,
 )
 from app.services.content import content_hash
 
@@ -39,7 +54,9 @@ class FakeDetailsProvider:
     def fetch_order_book(self, market: str, symbol: str):
         return None
 
-    def fetch_institutional_flow(self, market: str, symbol: str) -> NormalizedInstitutionalFlow:
+    def fetch_institutional_flow(
+        self, market: str, symbol: str
+    ) -> NormalizedInstitutionalFlow:
         return NormalizedInstitutionalFlow(
             symbol=symbol,
             market=market,
@@ -84,17 +101,6 @@ class CountingNewsProvider:
         return list(self.articles)
 
 
-class FakePushClient:
-    def __init__(self) -> None:
-        self.messages: list[tuple[str, str]] = []
-
-    async def push(self, title: str, text: str):
-        from app.services.pushdeer import PushResult
-
-        self.messages.append((title, text))
-        return PushResult(True, "ok")
-
-
 class FakeDeepSeekClient:
     last_context = ""
 
@@ -103,7 +109,9 @@ class FakeDeepSeekClient:
 
     async def complete(self, user_prompt: str, context: str = "") -> AiResult:
         FakeDeepSeekClient.last_context = context
-        return AiResult(True, "简报正文", prompt_tokens=123, completion_tokens=45, total_tokens=168)
+        return AiResult(
+            True, "简报正文", prompt_tokens=123, completion_tokens=45, total_tokens=168
+        )
 
 
 def test_collect_quotes_triggers_alert() -> None:
@@ -115,7 +123,14 @@ def test_collect_quotes_triggers_alert() -> None:
         session.add(stock)
         session.commit()
         session.refresh(stock)
-        session.add(AlertRule(stock_id=stock.id or 0, rule_type="price_above", threshold=10, name="price"))
+        session.add(
+            AlertRule(
+                stock_id=stock.id or 0,
+                rule_type="price_above",
+                threshold=10,
+                name="price",
+            )
+        )
         session.commit()
 
         count = asyncio.run(collect_quotes(session, FakeProvider()))
@@ -124,6 +139,42 @@ def test_collect_quotes_triggers_alert() -> None:
         assert count == 1
         assert event is not None
         assert "当前价格" in event.message
+
+
+def test_cloud_collection_uses_active_users_watchlist_union(monkeypatch) -> None:
+    import app.services.collector as collector
+
+    monkeypatch.setattr(
+        collector, "settings", type("CloudSettings", (), {"app_mode": "api"})()
+    )
+    engine = create_engine("sqlite:///:memory:")
+    SQLModel.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        active_user = User(openid="active", status="active")
+        pending_user = User(openid="pending", status="pending")
+        included = Stock(market="US", symbol="AAPL", name="Apple")
+        excluded = Stock(market="US", symbol="MSFT", name="Microsoft")
+        session.add_all([active_user, pending_user, included, excluded])
+        session.commit()
+        session.add(
+            UserWatchlist(
+                user_id=active_user.id or 0, stock_id=included.id or 0, active=True
+            )
+        )
+        session.add(
+            UserWatchlist(
+                user_id=pending_user.id or 0, stock_id=excluded.id or 0, active=True
+            )
+        )
+        session.commit()
+
+        count = asyncio.run(collect_quotes(session, FakeProvider()))
+        quotes = session.exec(select(MarketQuote)).all()
+
+        assert count == 1
+        assert len(quotes) == 1
+        assert quotes[0].stock_id == included.id
 
 
 def test_generate_daily_brief_includes_beijing_time(monkeypatch) -> None:
@@ -216,7 +267,9 @@ def test_generate_daily_brief_can_limit_context_to_latest_24_hours(monkeypatch) 
         )
         session.commit()
 
-        asyncio.run(generate_daily_brief(session, scope_label="最新24小时", latest_hours=24))
+        asyncio.run(
+            generate_daily_brief(session, scope_label="最新24小时", latest_hours=24)
+        )
 
         assert "source=fresh-source" in FakeDeepSeekClient.last_context
         assert "source=old-source" not in FakeDeepSeekClient.last_context
@@ -260,7 +313,9 @@ def test_cooldown_alert_stays_enabled_after_trigger() -> None:
         session.add(stock)
         session.commit()
         session.refresh(stock)
-        rule = AlertRule(stock_id=stock.id or 0, rule_type="price_above", threshold=10, name="loop")
+        rule = AlertRule(
+            stock_id=stock.id or 0, rule_type="price_above", threshold=10, name="loop"
+        )
         session.add(rule)
         session.commit()
         session.refresh(rule)
@@ -322,7 +377,11 @@ def test_build_context_respects_character_budget() -> None:
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
-        session.add(NewsItem(title="long", source="test", summary="x" * 2000, content_hash="long"))
+        session.add(
+            NewsItem(
+                title="long", source="test", summary="x" * 2000, content_hash="long"
+            )
+        )
         session.commit()
 
         context = build_context(session, max_chars=300)
@@ -344,8 +403,22 @@ def test_build_context_filters_by_mentioned_stock() -> None:
         session.refresh(googl)
         session.refresh(aapl)
         trade_date = datetime(2026, 6, 1, tzinfo=timezone.utc)
-        session.add(HistoricalPrice(stock_id=googl.id or 0, trade_date=trade_date, close=100, content_hash="g"))
-        session.add(HistoricalPrice(stock_id=aapl.id or 0, trade_date=trade_date, close=200, content_hash="a"))
+        session.add(
+            HistoricalPrice(
+                stock_id=googl.id or 0,
+                trade_date=trade_date,
+                close=100,
+                content_hash="g",
+            )
+        )
+        session.add(
+            HistoricalPrice(
+                stock_id=aapl.id or 0,
+                trade_date=trade_date,
+                close=200,
+                content_hash="a",
+            )
+        )
         session.commit()
 
         context = build_context(session, query="请获取GOOGL最近一个月的行情数据")
@@ -366,8 +439,22 @@ def test_build_context_filters_news_by_mentioned_stock() -> None:
         session.commit()
         session.refresh(googl)
         session.refresh(aapl)
-        session.add(NewsItem(stock_id=googl.id, title="GOOGL volume expands", source="test", content_hash="g"))
-        session.add(NewsItem(stock_id=aapl.id, title="Apple volume expands", source="test", content_hash="a"))
+        session.add(
+            NewsItem(
+                stock_id=googl.id,
+                title="GOOGL volume expands",
+                source="test",
+                content_hash="g",
+            )
+        )
+        session.add(
+            NewsItem(
+                stock_id=aapl.id,
+                title="Apple volume expands",
+                source="test",
+                content_hash="a",
+            )
+        )
         session.commit()
 
         context = build_context(session, query="请分析GOOGL volume")
@@ -470,7 +557,14 @@ def test_collect_market_details_can_trigger_volume_alert_from_trading_data() -> 
         session.add(stock)
         session.commit()
         session.refresh(stock)
-        session.add(AlertRule(stock_id=stock.id or 0, rule_type="volume_above", threshold=1000, name="volume"))
+        session.add(
+            AlertRule(
+                stock_id=stock.id or 0,
+                rule_type="volume_above",
+                threshold=1000,
+                name="volume",
+            )
+        )
         session.commit()
 
         asyncio.run(collect_market_details(session, FakeTradingAlertProvider()))
@@ -529,8 +623,12 @@ def test_collect_news_deduplicates_existing_articles_before_saving() -> None:
         session.commit()
         provider = CountingNewsProvider(
             [
-                NormalizedArticle(title="old duplicate", source="test", url="https://example.com/old"),
-                NormalizedArticle(title="fresh", source="test", url="https://example.com/new"),
+                NormalizedArticle(
+                    title="old duplicate", source="test", url="https://example.com/old"
+                ),
+                NormalizedArticle(
+                    title="fresh", source="test", url="https://example.com/new"
+                ),
             ]
         )
 
@@ -539,10 +637,13 @@ def test_collect_news_deduplicates_existing_articles_before_saving() -> None:
 
         assert count == 1
         assert provider.calls == 1
-        assert [item.url for item in items] == ["https://example.com/new", "https://example.com/old"]
+        assert [item.url for item in items] == [
+            "https://example.com/new",
+            "https://example.com/old",
+        ]
 
 
-def test_push_pending_alert_events_marks_events_pushed() -> None:
+def test_alerts_without_user_are_not_sent_to_external_channels() -> None:
     engine = create_engine("sqlite:///:memory:")
     SQLModel.metadata.create_all(engine)
 
@@ -551,15 +652,11 @@ def test_push_pending_alert_events_marks_events_pushed() -> None:
         session.add(stock)
         session.commit()
         session.refresh(stock)
-        event = AlertEvent(rule_id=1, stock_id=stock.id or 0, message="alert")
-        session.add(event)
+        session.add(
+            AlertEvent(rule_id=1, stock_id=stock.id or 0, message="legacy alert")
+        )
         session.commit()
-        client = FakePushClient()
 
-        pushed = asyncio.run(push_pending_alert_events(session, client))
-        updated = session.get(AlertEvent, event.id)
+        from app.services.collector import push_pending_alert_events
 
-        assert pushed == 1
-        assert updated is not None
-        assert updated.pushed
-        assert client.messages == [("Stock Alert: US GOOGL Alphabet Inc.", "US GOOGL Alphabet Inc.\n\nalert")]
+        assert asyncio.run(push_pending_alert_events(session)) == 0

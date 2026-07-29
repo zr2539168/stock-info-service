@@ -1,0 +1,12 @@
+<view class="page">
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{loading}}" class="empty">正在加载…</view>
+  <view wx:elif="{{item}}" class="card">
+    <view class="page-title detail-title">股票提醒</view>
+    <view class="muted">{{item.stock.market}} {{item.stock.symbol}} {{item.stock.name}}</view>
+    <view class="divider"></view>
+    <view class="content-text">{{item.message}}</view>
+    <view class="divider"></view>
+    <view class="muted">触发时间：{{item.createdText}}</view>
+  </view>
+</view>

@@ -1,0 +1,11 @@
+.git
+.env
+data
+logs
+tests
+wechat/miniprogram
+wechat/cloudfunctions
+__pycache__
+*.pyc
+*.db
+*.sqlite*
